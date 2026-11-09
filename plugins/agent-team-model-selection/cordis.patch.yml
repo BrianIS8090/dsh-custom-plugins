@@ -1,0 +1,17 @@
+- id: tool-agent-team
+  disabled: true
+- id: agent-team
+  disabled: true
+- insert:
+    - id: team-model-selection-domain
+      name: '@local/team-model-selection/team'
+      config: {}
+    - id: team-model-selection-tools
+      name: '@local/team-model-selection/tools'
+      config:
+        interrupt: true
+        freshProvider: spawn
+        forkProvider: fork
+    - id: team-model-selection-discovery
+      name: '@local/team-model-selection'
+      config: {}

@@ -1,0 +1,15 @@
+{
+  "Runtime Memory": "Оперативная память",
+  "Exact, bounded working context and user profile projection.": "Точный рабочий контекст ограниченного объёма и профиль пользователя.",
+  "Workspace-scoped narrative memory with namespace-pinned reads.": "Проектные документы рабочего пространства с чтением из закреплённой области.",
+  "Durable evidence across local and remote Provider-backed namespaces.": "Долговременные сведения в локальных и удалённых пространствах хранилищ.",
+  "DSH skills with their versions, evolution suggestions, evidence trajectories and eval sets.": "Навыки DSH: версии, предложения по улучшению, история применения и наборы проверок.",
+  "working-context": "Рабочий контекст",
+  "durable": "Долговременное хранение",
+  "reference": "Справочные материалы",
+  "read": "Чтение",
+  "write": "Запись",
+  "search": "Поиск",
+  "list": "Список",
+  "manage": "Управление"
+}

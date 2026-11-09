@@ -1,0 +1,14 @@
+{
+  "name": "dsh-custom-plugin-pack",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Local DeepSeek Harness plugins, reproducible setup instructions and public-release checks.",
+  "scripts": {
+    "test": "node scripts/test-public.mjs",
+    "audit": "node scripts/audit-public.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

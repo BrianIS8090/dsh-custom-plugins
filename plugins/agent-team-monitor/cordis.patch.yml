@@ -1,0 +1,4 @@
+- insert:
+    - id: agent-team-monitor
+      name: '@local/agent-team-monitor'
+      config: {}

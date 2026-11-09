@@ -1,0 +1,24 @@
+{
+  "name": "@local/team-model-selection",
+  "version": "1.0.2",
+  "private": true,
+  "type": "module",
+  "description": "Выбор модели и уровня рассуждения при создании участников Agent Teams.",
+  "scripts": {
+    "test": "node --test --test-isolation=none test/selection.test.js test/schema.test.js test/runtime-resolver.test.js"
+  },
+  "engines": { "dsh": "=0.2.2-rc.1" },
+  "exports": {
+    ".": "./discovery-v3.js",
+    "./team": "./team.js",
+    "./tools": "./team-tools.js",
+    "./locale/*.json": "./locale/*.json",
+    "./team/locale/*.json": "./locale/*.json",
+    "./tools/locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./team/icon": "./icon.svg",
+    "./tools/icon": "./icon.svg"
+  },
+  "files": ["team.js", "team-tools.js", "discovery-v3.js", "discovery-v2.js", "discovery.js", "selection.js", "runtime.js", "runtime-resolver.js", "vendor/agent-team/package/lib/index.js", "vendor/agent-team/package/LICENSE", "vendor/tool-agent-team/package/lib/index.js", "vendor/tool-agent-team/package/LICENSE", "cordis.patch.yml", "locale/*.json", "icon.svg", "README.md"],
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
+}

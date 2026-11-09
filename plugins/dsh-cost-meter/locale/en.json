@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Kimi limits",
+    "description": "Shows the remaining Kimi Code 5-hour and monthly limits instead of the token counter rows while a Kimi model is selected"
+  }
+}

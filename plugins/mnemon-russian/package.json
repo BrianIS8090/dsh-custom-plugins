@@ -1,0 +1,17 @@
+{
+  "name": "@local/mnemon-russian-build",
+  "version": "0.5.42+ru.2",
+  "private": true,
+  "type": "module",
+  "description": "Build-only manifest for the unofficial Mnemon Russian localization; the installable package is generated in dist.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "clean": "node scripts/clean.mjs",
+    "prepare:upstream": "node scripts/prepare.mjs",
+    "build": "node scripts/build.mjs && node scripts/build-sources.mjs",
+    "pack": "node scripts/pack.mjs && node scripts/audit-dist.mjs",
+    "test": "node scripts/test-all.mjs"
+  }
+}

@@ -1,0 +1,11 @@
+[
+  {
+    "insert": [
+      {
+        "id": "@local/running-session-preview:live-chat-preview",
+        "name": "@local/running-session-preview",
+        "config": {}
+      }
+    ]
+  }
+]

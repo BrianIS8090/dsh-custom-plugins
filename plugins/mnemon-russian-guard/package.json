@@ -1,0 +1,22 @@
+{
+  "name": "@local/mnemon-russian-guard",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Автоматически восстанавливает русский интерфейс Mnemon после совместимых обновлений. Не изменяет память и серверную логику.",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20",
+    "dsh": ">=0.2.0-rc.2 <0.2.1-0 || >=0.2.1-rc.1 <0.3.0-0"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "files": ["index.js", "controller.mjs", "transform.mjs", "data/plans.json", "cordis.patch.yml", "locale", "README.md", "NOTICE.md"],
+  "scripts": {
+    "test": "node --test --test-isolation=none test/*.test.mjs",
+    "check": "node --check index.js && node --check controller.mjs && node --check transform.mjs"
+  },
+  "dsh": {"bundle": {"patch": "./cordis.patch.yml"}}
+}

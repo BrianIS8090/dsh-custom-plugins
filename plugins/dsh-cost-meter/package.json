@@ -1,0 +1,37 @@
+{
+  "name": "dsh-cost-meter",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Kimi Code limits badge for the composer dock: shows remaining 5-hour and monthly limits instead of the token counter rows.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/kimi.js",
+    "lib/client.js",
+    "locale/*.json",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": []
+    }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "@local/7lamp-harness",
+  "version": "1.0.4",
+  "private": true,
+  "description": "Фирменное оформление 7LAMP HARNESS по UI-kit 7ЛАМП: палитра, типографика, скругления и брендинг.",
+  "type": "module",
+  "license": "UNLICENSED",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": ["index.js", "client.js", "cordis.patch.yml", "locale/*.json", "icon.svg", "README.md"],
+  "scripts": { "test": "node --test test/*.test.mjs", "check": "node --check index.js && node --check client.js" },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": ["@deepseek-ai/dsh-client-ui-theme", "@deepseek-ai/dsh-client-ui-sidebar", "@deepseek-ai/dsh-client-ui-conversation", "@deepseek-ai/dsh-client-ui-brand-official"]
+    }
+  }
+}

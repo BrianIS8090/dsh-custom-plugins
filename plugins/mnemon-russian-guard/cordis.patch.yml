@@ -1,0 +1,4 @@
+- insert:
+    - id: mnemon-russian-guard
+      name: '@local/mnemon-russian-guard'
+      config: {}

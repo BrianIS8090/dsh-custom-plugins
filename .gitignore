@@ -1,0 +1,45 @@
+# Secrets and local credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+.credentials.yaml
+.credentials.yml
+credentials.json
+credentials.local.json
+*.secret
+
+# Agent memory, sessions, and private exports
+.mnemon/
+.mneme/
+.dsh/
+sessions/
+logs/
+migration-*.json
+translation-input-*.json
+translation-output-*.json
+
+# Dependencies and build output
+node_modules/
+build/
+coverage/
+*.tgz
+*.zip
+*.7z
+
+# Local state and diagnostics
+*.log
+*.bak
+*.tmp
+*.sqlite
+*.sqlite3
+*.db
+.DS_Store
+Thumbs.db
+.tools/
+security-audit-local.json
+plugins/mneme-russian/pnpm-lock.yaml

@@ -1,0 +1,4 @@
+- insert:
+    - id: subscription-quota
+      name: '@local/subscription-quota'
+      config: {}

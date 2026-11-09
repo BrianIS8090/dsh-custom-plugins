@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Running session latest message",
+    "description": "Show the latest text message below running session titles and in the hover tooltip, without reasoning or tool calls."
+  },
+  "latestMessage": "Latest message"
+}

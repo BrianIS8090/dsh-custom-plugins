@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "upstreamRepository": "https://github.com/omdsh-dev/dsh-mnemon",
+  "packages": [
+    {
+      "name": "dsh-mnemon",
+      "version": "0.5.42",
+      "tarball": "https://registry.npmjs.org/dsh-mnemon/-/dsh-mnemon-0.5.42.tgz",
+      "integrity": "sha512-LXAhVZexnox+swoa/uP2zQO7S674/5Ek0veXJe8vpKKQ0+0aMdAlsa5U5yEmXdazoy6Yq/WdAjkPesL6Bg28kA=="
+    },
+    {
+      "name": "dsh-mnemon-source-runtime",
+      "version": "0.5.18",
+      "tarball": "https://registry.npmjs.org/dsh-mnemon-source-runtime/-/dsh-mnemon-source-runtime-0.5.18.tgz",
+      "integrity": "sha512-RCkgSsmKRpTaDkTCyMV+23JNCzp6X2zCwt4jHG3y4k4Qy8SnRPABCsE5lSAHJbgMTSZNt1n2AH6LHuxPNw1P8w=="
+    },
+    {
+      "name": "dsh-mnemon-source-documents",
+      "version": "0.6.0",
+      "tarball": "https://registry.npmjs.org/dsh-mnemon-source-documents/-/dsh-mnemon-source-documents-0.6.0.tgz",
+      "integrity": "sha512-QMBavZq3GrVW1n/ByDhEaSBjOIGxysf1iXKM1I4KZiFN+TmmSeLDSpLI2vRS0ern2FbZ6hiPaojRX32eFQjuWA=="
+    },
+    {
+      "name": "dsh-mnemon-source-memory-spaces",
+      "version": "0.5.25",
+      "tarball": "https://registry.npmjs.org/dsh-mnemon-source-memory-spaces/-/dsh-mnemon-source-memory-spaces-0.5.25.tgz",
+      "integrity": "sha512-N3DFxAasXt/lICcE2QiXxmydrs8DMYyZFmZCf8HXU0AmVhGy18GNEqujZTBN1+mPdydmzoUCORRVXnq8GrWwFg=="
+    },
+    {
+      "name": "dsh-mnemon-source-skills",
+      "version": "0.5.9",
+      "tarball": "https://registry.npmjs.org/dsh-mnemon-source-skills/-/dsh-mnemon-source-skills-0.5.9.tgz",
+      "integrity": "sha512-NmEgxWCAwRpzXO1NOLb2+u49zOQypNHSyO00eCvFwme0/HmuAwKsoZVr3HC+RDFNuQV48FmyANFRggLeVZCi6A=="
+    }
+  ]
+}
