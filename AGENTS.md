@@ -23,6 +23,30 @@
 
 Подробности форм установки, registry и совместимости: [docs/EXTERNAL.md](docs/EXTERNAL.md).
 
+## 1.1. Миграция существующего профиля
+
+Не считайте имеющийся профиль чистой установкой. Сначала сохраните резервную копию вне репозитория и через Plugin Manager составьте список активных bundles, их версий, Cordis rows и local-link якорей. Пакеты, отсутствующие в этом репозитории, не удаляйте только из-за их отсутствия в списке.
+
+### Конфликты и намеренные отличия
+
+- **Codex:** `dsh-openai-codex-auth` и `dsh-codex-subscription` регистрируют один provider `openai-codex`; одновременно включать их нельзя. Если прежняя авторизация работает, оставьте новый `dsh-codex-subscription` **disabled**. Старый OAuth не переносится автоматически: переход выполняйте отдельно, отключив прежний bundle без удаления credential и повторив интерактивный вход пользователя.
+- **Счётчик лимитов:** разные реализации cost meter используют один Cordis row `cost-meter`; включайте только одну. Пакет из этого репозитория — Kimi-only `dsh-cost-meter@0.1.0`, привязанный к route `llm-pi-ai/kimi-coding`, а не к любому пользовательскому Kimi route. Не заменяйте более функциональный существующий плагин, например `@local/dsh-cost-meter@0.3.0`, без явно согласованной потери функций.
+- **Дополнительные local plugins:** существующие auth, image и другие рабочие пакеты не входят в эталон автоматически. Их происхождение, совместимость и необходимость публикации проверяйте отдельно; local-link директории не перемещайте и не удаляйте.
+
+### Частные проблемы установки
+
+- При `schannel: AcquireCredentialsHandle failed: SEC_E_NO_CREDENTIALS` используйте OpenSSL только для одного clone, не отключая проверку TLS и не меняя глобальный Git config:
+
+  ```powershell
+  git -c http.sslBackend=openssl clone https://github.com/BrianIS8090/dsh-custom-plugins.git
+  ```
+
+- Не передавайте `registry=""`: это не значение по умолчанию. Опустите параметр или задайте `https://registry.npmjs.org/`.
+- Тесты `mnemon-russian-guard` требуют generated verified upstream из `mnemon-russian/dist/work`. Сначала полностью выполните prepare/build Mnemon по §4.2; не запускайте guard-тесты из чистого clone до этой сборки и не подменяйте fixtures.
+- Peer warnings pnpm не устраняйте второй копией Cordis/DSH. Проверьте поставляемые Host manifests и фактическую загрузку после перезапуска; duplicate service classes могут сломать профиль.
+
+Миграция завершена только после полного Host restart: нужные пакеты `active`, все пять компонентов Mnemon локализованы, duplicate providers/rows отсутствуют, plugin catalog загружается, а визуальная smoke-проверка памяти, Agent Teams и светлой/тёмной темы прошла. Восстановите исходные пользовательские предпочтения после проверки.
+
 ## 2. Включите поставляемые official bundles
 
 Эти пакеты уже находятся в установке DSH. **Скачивать их отдельно через npm не нужно.** Включите следующие layers через Plugins/Plugin Manager:
