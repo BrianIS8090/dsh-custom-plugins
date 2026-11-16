@@ -1,9 +1,9 @@
 {
   "name": "@local/running-session-preview",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "private": true,
   "type": "module",
-  "description": "Live last-message tooltip on hover for running sessions in the left sidebar.",
+  "description": "Live action preview and recent activity tooltip for running sessions in the left sidebar.",
   "license": "MIT",
   "exports": {
     ".": "./dist/index.js",

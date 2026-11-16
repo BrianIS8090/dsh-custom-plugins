@@ -6,7 +6,7 @@ const read = path => readFile(new URL(path, root), 'utf8');
 const pkg = JSON.parse(await read('package.json'));
 const name = '@local/running-session-preview';
 assert.equal(pkg.name, name);
-assert.equal(pkg.version, '1.2.1');
+assert.equal(pkg.version, '1.3.0');
 assert.equal(pkg.dsh.bundle.patch, './cordis.patch.yml');
 for (const operation of JSON.parse(await read('cordis.patch.yml'))) {
   assert.deepEqual(Object.keys(operation), ['insert']);

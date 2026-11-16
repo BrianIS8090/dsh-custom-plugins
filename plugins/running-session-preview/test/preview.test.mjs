@@ -273,6 +273,47 @@ test('restored bottom line remains independent of hover, streams text and releas
   f.close();
 });
 
+test('real bundled components display tool lifecycle in row and recent hover actions', async () => {
+  for (const surface of ['row', 'hover']) {
+    const f = await componentFixture(undefined, surface);
+    f.state(true, true);
+    f.replace([reply('a', 'Previous reply'), node('t', 'tool-call', { root: {
+      phase: 'start', callId: 'c', name: 'pwsh', time: 2, subCalls: [],
+      args: { textPrefix: key => key === 'description' ? 'Проверить тесты' : undefined },
+    } })]);
+    const messages = messageElements(f.render());
+    assert.match(messages[0].props.children[0], /pwsh — Проверить тесты/);
+    assert.equal(messages.length, surface === 'row' ? 1 : 2);
+    f.replace([node('t', 'tool-call', { root: { kind: 'tool-result', callId: 'c', name: 'pwsh', time: 3, isError: true, subCalls: [] } })]);
+    const message = messageElements(f.render())[0];
+    assert.match(message.props['aria-label'], /toolError/);
+    f.close();
+    assert.equal(f.subscriptions(), 0);
+  }
+});
+
+test('hover region stops host copy shortcuts but preserves native scrolling', async () => {
+  const f = await componentFixture();
+  f.state(true, true);
+  const stack = [f.render()];
+  let region;
+  while (stack.length) {
+    const el = stack.pop();
+    if (Array.isArray(el)) stack.push(...el);
+    else if (el && typeof el === 'object') {
+      if (el.props?.role === 'region') { region = el; break; }
+      stack.push(el.props?.children);
+    }
+  }
+  assert.ok(region);
+  for (const key of [' ', 'Enter', 'ArrowDown']) {
+    let stopped = false;
+    region.props.onKeyDown({ key, stopPropagation() { stopped = true; }, preventDefault() { assert.fail('native scrolling must not be prevented'); } });
+    assert.equal(stopped, key !== 'ArrowDown');
+  }
+  f.close();
+});
+
 test('a resolved opening with openState error never renders a stale message', async () => {
   const f = await componentFixture({ openState: 'error', openError: { message: 'Unavailable' } });
   f.state(true, true);
@@ -282,23 +323,27 @@ test('a resolved opening with openState error never renders a stale message', as
   assert.equal(f.calls.filter(c => c[0] === 'release').length, 1);
 });
 
-test('both row and hover render one latest text message and never expose reasoning or tools', async () => {
+test('both surfaces use activity subscriptions, bounded layout and safe plain text', async () => {
   const source = await readFile(new URL('../dist/client.js', import.meta.url), 'utf8');
   assert.ok(source.includes("ctx.slots.inject('sidebar.session.row.hover'"));
   assert.ok(source.includes("ctx.slots.inject('sidebar.session.row.trailing'"));
   assert.ok(source.includes('width:min(488px,calc(100vw - 24px))'));
   assert.ok(source.includes('max-height:min(240px,32vh)'));
-  assert.ok(source.includes('transition:opacity 180ms ease-out'));
+  assert.ok(source.includes('animation:dsh-running-1e3fa7-enter 180ms ease-out'));
+  assert.ok(source.includes('div:has(>.wnFoaW_hoverContent .dsh-running-1e3fa7-message)'));
+  assert.doesNotMatch(source, /\._card_[a-z0-9_]+/);
   assert.ok(source.includes('@media(prefers-reduced-motion:reduce)'));
-  assert.ok(source.includes('createLatestMessageSource(lease.target)'));
+  assert.ok(source.includes('createActivitySource(lease.target, t)'));
+  assert.ok(source.includes('dsh-running-1e3fa7-activity-list'));
+  assert.ok(source.includes('color:var(--dsw-alias-hovercard-label-primary)'));
   assert.ok(source.includes('height:52px'));
   assert.ok(source.includes('rowResting'));
   assert.ok(source.includes('pointer-events:none'));
   assert.ok(!source.includes('ToolDetails'));
   assert.ok(!source.includes('Disclosure'));
-  assert.ok(!source.includes('toolRunning'));
+  assert.ok(source.includes('toolRunning'));
   assert.ok(!source.includes('toolCall'));
-  assert.ok(!source.includes("t('reasoning')"));
+  assert.ok(source.includes("t('reasoning')"));
   assert.ok(!source.includes('renderMarkdown'));
   assert.doesNotMatch(source, /dangerouslySetInnerHTML|document\.|fetch\(|remote\.|mainView|setInterval|setTimeout|MutationObserver|addEventListener|ctx\.llm/);
 });

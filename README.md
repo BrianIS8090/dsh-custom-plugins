@@ -10,7 +10,7 @@
 |---|---|---|
 | `plugins/agent-team-monitor` | Живая панель Agent Teams | Активен |
 | `plugins/agent-team-model-selection` | Выбор модели и reasoning effort для teammates/subagents | Активен |
-| `plugins/running-session-preview` | Последнее текстовое сообщение работающей сессии в sidebar | Активен |
+| `plugins/running-session-preview` | Последнее действие работающей сессии в sidebar и недавние действия при наведении | Активен |
 | `plugins/7lamp-harness` | Фирменное оформление 7LAMP | Активен |
 | `plugins/dsh-cost-meter` | Остатки лимитов Kimi Code | Активен |
 | `plugins/subscription-quota` | Квота CLIProxyAPI возле выбранной модели | Активен |
