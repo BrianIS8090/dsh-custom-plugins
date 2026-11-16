@@ -96,7 +96,7 @@ dsh plugin --profile desktop add dsh-computer-use-win@0.5.4
 
 | Каталог | Пакет | Назначение / условие |
 |---|---|---|
-| `plugins/agent-team-monitor` | `@local/agent-team-monitor@1.1.14` | Панель Agent Teams; требуется official Agent Teams |
+| `plugins/agent-team-monitor` | `@local/agent-team-monitor@1.1.16` | Панель Agent Teams; требуется official Agent Teams |
 | `plugins/agent-team-model-selection` | `@local/team-model-selection@1.0.2` | Выбор модели teammates/subagents; packaged Desktop 0.2.2-rc.1 |
 | `plugins/running-session-preview` | `@local/running-session-preview@1.2.1` | Последнее видимое текстовое сообщение работающей сессии |
 | `plugins/dsh-cost-meter` | `dsh-cost-meter@0.1.0` | Kimi limits; требуется Kimi credential в Models |
