@@ -21,7 +21,7 @@ for (const entry of lock.packages) {
   assert.equal(url.protocol, 'https:');
   assert.equal(url.hostname, 'registry.npmjs.org');
   assert.match(entry.integrity, /^sha512-[A-Za-z0-9+/]{86}==$/);
-  const response = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(30000) });
+  const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(30000) });
   if (!response.ok) throw Error(`${entry.name}: npm download failed with HTTP ${response.status}`);
   const bytes = Buffer.from(await response.arrayBuffer());
   if (bytes.length > 25 * 1024 * 1024) throw Error(`${entry.name}: unexpectedly large tarball`);

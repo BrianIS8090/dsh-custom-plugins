@@ -5,6 +5,8 @@ import path from 'node:path';
 import vm from 'node:vm';
 import {fileURLToPath} from 'node:url';
 import {satisfiesCaretRange} from '../scripts/lib/semver.mjs';
+import {BASE_HOST_SHA256,patchHost} from '../scripts/host-fixes.mjs';
+import {createHash} from 'node:crypto';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const work=path.join(root,'dist','work');
 const readJson=(p)=>JSON.parse(fs.readFileSync(path.join(root,p),'utf8'));
@@ -41,8 +43,8 @@ vm.runInNewContext(source,{window,console,URL,URLSearchParams,setTimeout,clearTi
 const fixture=exports.__ruTest;
 const tokens=(s)=>[...s.matchAll(/\{(\w+)\}/g)].map(m=>m[1]).sort();
 
-test('all 1420 English keys have Russian values and no extras',()=>{
- assert.equal(Object.keys(ru).length,1420);
+test('all 1421 English keys have Russian values and no extras',()=>{
+ assert.equal(Object.keys(ru).length,1421);
  assert.deepEqual(Object.keys(ru).sort(),Object.keys(en).sort());
  const missing=Object.keys(en).filter(k=>typeof ru[k]!=='string'||(en[k].trim()&&!ru[k].trim()));
  assert.deepEqual(missing,[]);
@@ -62,7 +64,7 @@ test('Russian dictionary is embedded in complete executable client bundle',()=>{
  assert.equal(exports.translateRu('common.showing',{visible:2,total:5}),ru['common.showing'].replace('{visible}','2').replace('{total}','5'));
 });
 test('all compiled Russian keys match reviewed JSON',()=>{
- assert.equal(Object.keys(fixture.ru).length,1420);
+ assert.equal(Object.keys(fixture.ru).length,1421);
  for(const key of Object.keys(ru))assert.equal(exports.translateRu(key),ru[key],key);
 });
 test('English and Chinese remain available',()=>{
@@ -109,25 +111,41 @@ test('management metadata is localized without translating user content',()=>{
  for(const [english,russian] of Object.entries(management))assert.equal(fixture.localizeEnglish(english,'ru'),russian);
  assert.equal(fixture.localizeEnglish('Мой проект architecture, local-first','ru'),'Мой проект architecture, local-first');
 });
-test('local package keeps upstream dependency graph and compatible build metadata',()=>{
+test('installable Starter and bundled Sources explicitly admit just this derivative',()=>{
  const original=readJson('dist/work/upstream/dsh-mnemon/package.json');
  const localized=readJson('dist/work/package/package.json');
  assert.equal(localized.name,original.name);
- assert.equal(localized.version,'0.5.42+ru.2');
+ assert.equal(localized.version,'0.5.42-ru.3');
  assert.equal(localized.private,true);
- assert.equal(localized.repository,undefined);
+ for(const field of ['repository','homepage','bugs','publishConfig']) assert.equal(localized[field],undefined,field);
  assert.deepEqual(localized.bundledDependencies,['dsh-mnemon-source-runtime','dsh-mnemon-source-documents','dsh-mnemon-source-memory-spaces','dsh-mnemon-source-skills']);
  for(const key of ['dependencies','peerDependencies','engines','dsh','exports'])assert.deepEqual(localized[key],original[key]);
  for(const id of localized.bundledDependencies){
+  const base=readJson(`dist/work/upstream/${id}/package.json`);
   const source=readJson(`dist/work/sources/${id}/package.json`);
-  assert.ok(satisfiesCaretRange(localized.version,source.peerDependencies['dsh-mnemon']),id);
+  assert.equal(source.name,base.name);
+  assert.equal(source.version,base.version);
+  assert.deepEqual(source.peerDependencies,{...base.peerDependencies,'dsh-mnemon':`${base.peerDependencies['dsh-mnemon']} || 0.5.42-ru.3`},id);
+  assert.equal(satisfiesCaretRange(localized.version,base.peerDependencies['dsh-mnemon']),false,id);
  }
- assert.equal(satisfiesCaretRange('0.5.42-ru.2','^0.5.19'),false,'prerelease must not silently satisfy peer ranges');
 });
-test('all non-client host JavaScript is byte-identical to verified upstream',()=>{
+test('Starter Host JavaScript differs only by the reviewed hash-pinned backport',()=>{
  const original=path.join(work,'upstream','dsh-mnemon','lib');
  const localized=path.join(work,'package','lib');
  const files=fs.readdirSync(original).filter(file=>file.endsWith('.js')&&file!=='client.js');
- assert.ok(files.length>0);
- for(const file of files)assert.ok(fs.readFileSync(path.join(localized,file)).equals(fs.readFileSync(path.join(original,file))),file);
+ assert.ok(files.includes('index.js'));
+ for(const file of files){
+  const originalBytes=fs.readFileSync(path.join(original,file));
+  const localizedBytes=fs.readFileSync(path.join(localized,file));
+  if(file==='index.js'){
+   assert.equal(createHash('sha256').update(originalBytes).digest('hex'),BASE_HOST_SHA256);
+   assert.equal(localizedBytes.toString('utf8'),patchHost(originalBytes.toString('utf8')));
+  }else assert.ok(localizedBytes.equals(originalBytes),file);
+ }
+});
+
+test('Auto pause has its own Russian status without requiring a permissions change',()=>{
+ assert.match(exports.translateRu('status.reviewAutoPaused'),/Память, поиск и обычное сохранение доступны/);
+ assert.match(exports.translateRu('status.reviewAutoPaused'),/Менять права ради этого не требуется/);
+ assert.match(source,/props\.reviewPaused === "auto-review" \? "status\.reviewAutoPaused"/);
 });

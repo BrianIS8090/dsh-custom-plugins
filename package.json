@@ -9,6 +9,7 @@
     "audit": "node scripts/audit-public.mjs"
   },
   "engines": {
-    "node": ">=20"
-  }
+    "node": "^24.15.0"
+  },
+  "packageManager": "pnpm@11.9.0"
 }

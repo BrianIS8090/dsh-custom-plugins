@@ -11,7 +11,15 @@ const compare = (left, right) => {
   return 0;
 };
 
-// Covers the exact caret peer ranges used by the five pinned Mnemon packages.
+export const LOCAL_VERSION = '0.5.42-ru.3';
+
+// Preserve the verified stable range and admit exactly this local Starter.
+export function localizedPeerRange(upstreamVersion, stableRange) {
+  if (!satisfiesCaretRange(upstreamVersion, stableRange)) throw Error(`Pinned upstream Starter does not satisfy ${stableRange}`);
+  return `${stableRange} || ${LOCAL_VERSION}`;
+}
+
+// Covers the stable caret peer ranges declared by the pinned Source packages.
 export function satisfiesCaretRange(version, range) {
   const candidate = numericVersion(version);
   const match = /^\^(\d+)\.(\d+)\.(\d+)$/.exec(range);

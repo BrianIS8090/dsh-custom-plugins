@@ -4,20 +4,22 @@ import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { satisfiesCaretRange } from './lib/semver.mjs';
+import { LOCAL_VERSION, localizedPeerRange } from './lib/semver.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const work = path.join(root, 'dist', 'work');
 const pkg = path.join(work, 'package');
 const dist = path.join(root, 'dist');
 const manifest = JSON.parse(fs.readFileSync(path.join(pkg, 'package.json'), 'utf8'));
-assert.equal(manifest.version, '0.5.42+ru.2');
+assert.equal(manifest.version, LOCAL_VERSION);
 assert.equal(manifest.private, true);
 assert.equal(manifest.repository, undefined);
+const upstreamStarter = JSON.parse(fs.readFileSync(path.join(work, 'upstream', 'dsh-mnemon', 'package.json'), 'utf8'));
 for (const id of manifest.bundledDependencies) {
   const source = path.join(work, 'sources', id);
   const sourceManifest = JSON.parse(fs.readFileSync(path.join(source, 'package.json'), 'utf8'));
-  assert.ok(satisfiesCaretRange(manifest.version, sourceManifest.peerDependencies['dsh-mnemon']), `${id}: incompatible dsh-mnemon peer range`);
+  const upstreamSource = JSON.parse(fs.readFileSync(path.join(work, 'upstream', id, 'package.json'), 'utf8'));
+  assert.equal(sourceManifest.peerDependencies['dsh-mnemon'], localizedPeerRange(upstreamStarter.version, upstreamSource.peerDependencies['dsh-mnemon']), `${id}: unexpected peer policy`);
   fs.rmSync(path.join(pkg, 'node_modules', id), { recursive: true, force: true });
   fs.cpSync(source, path.join(pkg, 'node_modules', id), { recursive: true });
 }

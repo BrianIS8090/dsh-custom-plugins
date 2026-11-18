@@ -2906,7 +2906,7 @@
       "skillTail.openSkill": "Открыть {name} в разделе «Навыки»",
       "skillTail.openSuggestions": "Открыть предложения в разделе «Навыки»"
     },
-    "knownLocalizedHash": "d460f371a18b1e63ed7552e1bcbc31d87aca08c6de93b92d3e6f8a927de1b221"
+    "knownLocalizedHash": "3a422a64ca24fd5d9d14dad96096164a0a3d306d076206e10603fbfb08fbb7db"
   },
   "dsh-mnemon-source-runtime": {
     "patches": [

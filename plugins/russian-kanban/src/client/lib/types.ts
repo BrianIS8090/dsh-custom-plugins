@@ -1,0 +1,109 @@
+export type Priority = "high" | "medium" | "low"
+
+export type ActivitySource = "human" | "agent"
+
+export type ActivityType =
+  | "card_created"
+  | "card_moved"
+  | "card_label_changed"
+  | "card_priority_changed"
+  | "card_due_date_changed"
+  | "board_completed_column_changed"
+  | "card_title_changed"
+  | "card_note_changed"
+  | "card_comment_added"
+  | "card_image_added"
+  | "card_image_removed"
+  | "card_deleted"
+  | "column_added"
+  | "column_renamed"
+  | "column_deleted"
+  | "label_added"
+  | "label_renamed"
+  | "label_deleted"
+  | "label_color_changed"
+
+export interface Activity {
+  id: string
+  ts: string
+  cardId: string | null
+  type: ActivityType
+  source: ActivitySource
+  field?: string
+  from?: string | null
+  to?: string | null
+  meta?: {
+    title?: string
+    column?: string
+    label?: string
+    priority?: string
+    fromColumn?: string | null
+    toColumn?: string | null
+  }
+}
+
+export interface Column {
+  id: string
+  title: string
+}
+
+export interface Label {
+  name: string
+  color: string
+}
+
+export interface Comment {
+  id: string
+  content: string
+  source: ActivitySource
+  createdAt: string
+}
+
+export interface ImageRef {
+  attachmentId: string
+  mediaType: "image/png" | "image/jpeg" | "image/webp"
+  bytes: number
+  width: number
+  height: number
+}
+
+export interface ImageLimits {
+  maxImageBytes: number
+  maxImagesPerCard: number
+  mediaTypes: string[]
+}
+
+export interface Card {
+  id: string
+  columnId: string
+  title: string
+  note: string
+  label: string | null
+  priority: Priority | null
+  dueDate: string | null
+  completedAt: string | null
+  createdAt: string | null
+  createdBy: ActivitySource | null
+  comments: Comment[]
+  images: ImageRef[]
+}
+
+export interface Board {
+  schemaVersion?: number
+  completedColumnId: string | null
+  columns: Column[]
+  labels: Label[]
+  cards: Card[]
+  activities: Activity[]
+}
+
+export interface KanbanResponse {
+  cardId?: string
+  imageLimits?: ImageLimits | null
+  board?: Board
+  persisted?: boolean
+  error?: string
+  message?: string
+  warnings?: string[]
+  undone?: boolean
+}

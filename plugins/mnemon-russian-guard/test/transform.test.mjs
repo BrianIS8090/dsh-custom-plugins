@@ -142,7 +142,11 @@ for (const fixture of packages) {
     const { exports } = load(fixture, result.code, 'ru');
     if (fixture.root) {
       assert.equal(typeof exports.translateRu, 'function');
-      for (const [key, expected] of Object.entries(rootRu)) assert.equal(exports.translateRu(key), expected, key);
+      for (const [key, expected] of Object.entries(rootRu)) {
+        // Upstream does not ship this localized build's Host-only status.
+        if (key !== 'status.reviewAutoPaused') assert.equal(exports.translateRu(key), expected, key);
+      }
+      assert.doesNotMatch(result.code, /status\.reviewAutoPaused/);
       assert.equal(exports.translateRu('common.showing', { visible: 2, total: 5 }), interpolate(rootRu['common.showing'], { visible: 2, total: 5 }));
     }
   });
@@ -241,7 +245,7 @@ for (const fixture of packages) {
     assert.equal(second.code, first.code);
   });
 
-  test(`${fixture.name}: current ru.2 bundle is already localized and remains byte-identical`, () => {
+  test(`${fixture.name}: current ru.3 bundle is already localized and remains byte-identical`, () => {
     const result = transform(fixture, fixture.localized);
     assert.equal(result.status, 'already-localized');
     assert.equal(result.code, fixture.localized);

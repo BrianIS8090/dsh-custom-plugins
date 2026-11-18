@@ -1,0 +1,4 @@
+- insert:
+    - id: agent-war-room
+      name: '@local/agent-war-room'
+      config: {}

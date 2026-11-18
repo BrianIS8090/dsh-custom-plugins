@@ -1,7 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
+import crypto from 'node:crypto';
 import {fileURLToPath} from 'node:url';
+import {LOCAL_VERSION} from './lib/semver.mjs';
+import {patchHost,BASE_HOST_SHA256} from './host-fixes.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const work=path.join(root,'dist','work');
 const upstream=path.join(work,'upstream','dsh-mnemon');
@@ -60,10 +63,21 @@ replace('title: props.instance.management.label,', 'title: localizeEnglish(props
 replace('description: props.instance.management.description,', 'description: localizeEnglish(props.instance.management.description, language),');
 replace('children: props.instance.role', 'children: localizeEnglish(props.instance.role, language)');
 replace('children: capability }, capability)', 'children: localizeEnglish(capability, language) }, capability)');
+// Local Host backport UI: not part of the Guard's upstream translation plan.
+replace('"status.reviewTeamPaused": "Idle review is paused', '"status.reviewAutoPaused": '+JSON.stringify(en['status.reviewAutoPaused'])+',\n\t\t\t"status.reviewTeamPaused": "Idle review is paused');
+replace('"status.reviewTeamPaused": "Agent Teams 工具在役时', '"status.reviewAutoPaused": "Auto 模式下暂停后台审查；记忆、检索和普通写入仍可使用。无需更改权限。",\n\t\t\t"status.reviewTeamPaused": "Agent Teams 工具在役时');
+replace('props.reviewPaused === "tool-access" ? "status.reviewToolAccessPaused" : "status.reviewTeamPaused"', 'props.reviewPaused === "auto-review" ? "status.reviewAutoPaused" : props.reviewPaused === "tool-access" ? "status.reviewToolAccessPaused" : "status.reviewTeamPaused"');
 new vm.Script(source,{filename:'dsh-mnemon-ru-client.js'});
+const guardHash=crypto.createHash('sha256').update(source).digest('hex');
+const originalHash=crypto.createHash('sha256').update(fs.readFileSync(path.join(upstream,'lib/client.js'))).digest('hex');
+source+=`\n/* mnemon-russian-guard:v1 original=${originalHash} body=${guardHash} */\n`;
 fs.writeFileSync(path.join(pkg,'lib/client.js'),source);
+const originalHost=fs.readFileSync(path.join(upstream,'lib/index.js'));
+const hostHash=crypto.createHash('sha256').update(originalHost).digest('hex');
+if(hostHash!==BASE_HOST_SHA256)throw Error('Unsupported Mnemon host baseline: '+hostHash);
+fs.writeFileSync(path.join(pkg,'lib/index.js'),patchHost(originalHost.toString('utf8')));
 const manifest=JSON.parse(fs.readFileSync(path.join(upstream,'package.json'),'utf8'));
-manifest.version='0.5.42+ru.2';
+manifest.version=LOCAL_VERSION;
 manifest.private=true;
 manifest.bundledDependencies=['dsh-mnemon-source-runtime','dsh-mnemon-source-documents','dsh-mnemon-source-memory-spaces','dsh-mnemon-source-skills'];
 manifest.description='Mnemon: русская локализация интерфейса; оперативная память, проектные документы и долговременные пространства памяти.';

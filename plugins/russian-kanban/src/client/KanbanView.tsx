@@ -1,0 +1,654 @@
+import { useCallback, useEffect, useRef, useState } from "react"
+import {
+  DndContext, DragOverlay, KeyboardSensor, MouseSensor, TouchSensor, closestCorners,
+  getFirstCollision, pointerWithin, rectIntersection,
+  useSensor, useSensors, type CollisionDetection, type DragEndEvent, type DragOverEvent, type DragStartEvent,
+} from "@dnd-kit/core"
+import { sortableKeyboardCoordinates } from "@dnd-kit/sortable"
+import { CalendarDays, Check, Filter, List, MessageSquare, RefreshCw, Settings2, Tag, X } from "lucide-react"
+import { CardDialog, type CardFormValues } from "./components/CardDialog"
+import { Column } from "./components/Column"
+import { ColumnDialog } from "./components/ColumnDialog"
+import { LabelDialog } from "./components/LabelDialog"
+import { KanbanCard } from "./components/SortableCard"
+import { SearchToolbar } from "./components/ui/search-toolbar"
+import { FilterMenu } from "./components/ui/filter-menu"
+import { matchCardSearch } from "../../search.js"
+import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { matchesDueDate, useLocalDate, type DueDateFilter } from "@/lib/due-date"
+import { callKanban, readChatImages, uploadImage } from "@/lib/api"
+import { cardToChatText, type ChatDraft } from "@/lib/chat-bridge"
+import { PRIORITY_META, PRIORITY_OPTIONS } from "@/lib/constants"
+import { useT } from "./lib/i18n"
+import type { Board, Card as CardType, ImageLimits, Priority } from "@/lib/types"
+import type { WorkspaceId } from "@deepseek-ai/dsh-api-workspace-controller/client"
+export interface KanbanViewProps {
+  workspaceId: WorkspaceId
+  onCreateConversation: (workspaceId: WorkspaceId, draft: ChatDraft, signal: AbortSignal) => Promise<boolean>
+}
+
+export function placeCard(
+  cards: CardType[],
+  activeId: string,
+  targetColumnId: string,
+  overCardId: string | null,
+  insertAfter: boolean,
+): { cards: CardType[]; toIndex: number } {
+  const activeCard = cards.find((card) => card.id === activeId)
+  if (!activeCard) return { cards, toIndex: -1 }
+
+  const currentIndex = cards.filter((card) => card.columnId === activeCard.columnId)
+    .findIndex((card) => card.id === activeId)
+  if (overCardId === activeId && activeCard.columnId === targetColumnId) {
+    return { cards, toIndex: currentIndex }
+  }
+
+  const remaining = cards.filter((card) => card.id !== activeId)
+  const targetCards = remaining.filter((card) => card.columnId === targetColumnId)
+  const overIndex = overCardId
+    ? targetCards.findIndex((card) => card.id === overCardId)
+    : -1
+  const toIndex = overIndex < 0 ? targetCards.length : overIndex + (insertAfter ? 1 : 0)
+  const next = [...remaining]
+  const anchor = targetCards[toIndex]
+  const lastTarget = targetCards[targetCards.length - 1]
+  const insertAt = anchor
+    ? next.indexOf(anchor)
+    : lastTarget
+      ? next.indexOf(lastTarget) + 1
+      : next.length
+  next.splice(insertAt, 0, { ...activeCard, columnId: targetColumnId })
+
+  const unchanged = next.every(
+    (card, index) => card.id === cards[index]?.id && card.columnId === cards[index]?.columnId,
+  )
+  return { cards: unchanged ? cards : next, toIndex }
+}
+
+export function KanbanView({ workspaceId, onCreateConversation }: KanbanViewProps) {
+  const t = useT()
+
+  const [board, setBoard] = useState<Board | null>(null)
+  const [imageLimits, setImageLimits] = useState<ImageLimits | null>(null)
+  const [query, setQuery] = useState("")
+  const [error, setError] = useState("")
+  const [warnings, setWarnings] = useState<string[]>([])
+  const [activeCard, setActiveCard] = useState<CardType | null>(null)
+  const [dialog, setDialog] = useState<{ card: CardType | null; columnId: string } | null>(null)
+  const [columnDialogOpen, setColumnDialogOpen] = useState(false)
+  const [labelDialogOpen, setLabelDialogOpen] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const today = useLocalDate()
+  const [dueDateFilter, setDueDateFilter] = useState<DueDateFilter>("")
+  const [priorityFilter, setPriorityFilter] = useState<Priority | "">("")
+  // null means all labels; an empty string means unlabeled cards.
+  const [labelFilter, setLabelFilter] = useState<string | null>(null)
+
+  const boardRef = useRef<Board | null>(board)
+  const dragCardsRef = useRef<CardType[] | null>(null)
+  const editingRef = useRef(false)
+  editingRef.current = Boolean(dialog || columnDialogOpen || labelDialogOpen || dragCardsRef.current)
+  const workspaceIdRef = useRef(workspaceId)
+  const chatAbort = useRef<AbortController | null>(null)
+  useEffect(() => () => { chatAbort.current?.abort() }, [workspaceId])
+  const issuedRequestRef = useRef(0)
+  const appliedRequestRef = useRef(0)
+  boardRef.current = board
+  workspaceIdRef.current = workspaceId
+
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+
+  const applyBoard = useCallback((res: any, expectedWorkspace: string, requestId: number) => {
+    if (workspaceIdRef.current !== expectedWorkspace || requestId < appliedRequestRef.current) return
+    appliedRequestRef.current = requestId
+    if (res && res.board) {
+      // Older host plugins may omit comments/activities; default to empty arrays for rendering.
+      setBoard({
+        ...res.board,
+        completedColumnId: res.board.completedColumnId ?? null,
+        cards: Array.isArray(res.board.cards)
+          ? res.board.cards.map((card: CardType) => ({ ...card, dueDate: card.dueDate ?? null, completedAt: card.completedAt ?? null, comments: Array.isArray(card.comments) ? card.comments : [], images: Array.isArray(card.images) ? card.images : [] }))
+          : [],
+        activities: Array.isArray(res.board.activities) ? res.board.activities : [],
+      })
+      setError("")
+    }
+    if (res && "imageLimits" in res) setImageLimits(res.persisted === false ? null : res.imageLimits ?? null)
+    if (Array.isArray(res && res.warnings) && res.warnings.length > 0) {
+      setWarnings((prev) => [...prev, ...res.warnings])
+    }
+  }, [])
+
+  const act = useCallback(
+    async (method: string, args: Record<string, unknown> = {}) => {
+      const requestId = ++issuedRequestRef.current
+      setError("")
+      try {
+        const res = await callKanban(method, args, workspaceId)
+        applyBoard(res, workspaceId, requestId)
+        return true
+      } catch (e: any) {
+        setError(t("actionFailed") + String((e && e.message) || e))
+        return false
+      }
+    },
+    [workspaceId, applyBoard, t],
+  )
+
+  const refreshRequestRef = useRef<Promise<void> | null>(null)
+  const refreshBoard = useCallback((feedback = true) => {
+    if (refreshRequestRef.current) return refreshRequestRef.current
+    const requestId = ++issuedRequestRef.current
+    if (feedback) setRefreshing(true)
+    const request = callKanban("get", {}, workspaceId)
+      .then((res) => {
+        // A read started before editing may settle after a save. Discard its stale snapshot.
+        if (feedback || !editingRef.current) applyBoard(res, workspaceId, requestId)
+      })
+      .catch((e) => {
+        // Background failures leave the last good board visible; only manual retries report them.
+        if (feedback && workspaceIdRef.current === workspaceId) setError(t("loadFailed") + String((e && e.message) || e))
+      })
+      .finally(() => {
+        if (refreshRequestRef.current === request) refreshRequestRef.current = null
+        if (feedback && workspaceIdRef.current === workspaceId) setRefreshing(false)
+      })
+    refreshRequestRef.current = request
+    return request
+  }, [workspaceId, applyBoard, t])
+
+  useEffect(() => {
+    if (!board || dialog || columnDialogOpen || labelDialogOpen) return
+    const sync = () => {
+      if (document.visibilityState === "visible" && !dragCardsRef.current) void refreshBoard(false)
+    }
+    // Agent tools change the same Host board without going through this React view.
+    const timer = window.setInterval(sync, 2000)
+    const onVisibilityChange = () => sync()
+    document.addEventListener("visibilitychange", onVisibilityChange)
+    window.addEventListener("online", sync)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+      window.removeEventListener("online", sync)
+    }
+  }, [board !== null, dialog, columnDialogOpen, labelDialogOpen, refreshBoard])
+
+  useEffect(() => {
+    let alive = true
+    const requestId = ++issuedRequestRef.current
+    setBoard(null)
+    setImageLimits(null)
+    setQuery("")
+    setLabelFilter(null)
+    setPriorityFilter("")
+    setDueDateFilter("")
+    setDialog(null)
+    setActiveCard(null)
+    setError("")
+    setWarnings([])
+    callKanban("get", {}, workspaceId)
+      .then((res) => {
+        if (alive) applyBoard(res, workspaceId, requestId)
+      })
+      .catch((e) => {
+        if (alive) setError(t("loadFailed") + String((e && e.message) || e))
+      })
+    return () => {
+      alive = false
+    }
+  }, [workspaceId, applyBoard, t])
+
+  useEffect(() => {
+    // A removed or renamed label must not leave an invisible, stale filter active.
+    if (board) setLabelFilter((selected) =>
+      selected && !board.labels.some((label) => label.name === selected) ? null : selected,
+    )
+  }, [board?.labels])
+
+  // Prefer pointerWithin for empty columns, then closestCorners for sorting cards.
+  const collisionDetection: CollisionDetection = useCallback(
+    (args) => {
+      const pointerIntersections = pointerWithin(args)
+      const intersections = pointerIntersections.length > 0 ? pointerIntersections : rectIntersection(args)
+      let overId = getFirstCollision(intersections, "id")
+      if (overId == null) return []
+
+      const columnIds = new Set((board?.columns ?? []).map((c) => c.id))
+      if (columnIds.has(String(overId))) {
+        const containerItems = (board?.cards ?? [])
+          .filter((c) => c.columnId === overId)
+          .map((c) => c.id)
+        if (containerItems.length > 0) {
+          const closest = closestCorners({
+            ...args,
+            droppableContainers: args.droppableContainers.filter(
+              (container) => container.id !== overId && containerItems.includes(String(container.id)),
+            ),
+          })
+          if (closest.length > 0) overId = closest[0].id
+        }
+      }
+      return [{ id: overId }]
+    },
+    [board],
+  )
+
+  const setLocalCards = (cards: CardType[]) => {
+    const current = boardRef.current
+    if (!current || current.cards === cards) return
+    const next = { ...current, cards }
+    boardRef.current = next
+    setBoard(next)
+  }
+
+  const handleDragStart = (event: DragStartEvent) => {
+    if (event.active.data.current?.type !== "card") return
+    const current = boardRef.current
+    const card = current?.cards.find((item) => item.id === event.active.id)
+    if (!card || !current) return
+    dragCardsRef.current = current.cards
+    setActiveCard(card)
+  }
+
+  const handleDragOver = ({ active, over }: DragOverEvent) => {
+    const current = boardRef.current
+    if (!over || !current || active.data.current?.type !== "card") return
+
+    const activeId = String(active.id)
+    const activeCard = current.cards.find((card) => card.id === activeId)
+    const overCard = current.cards.find((card) => card.id === over.id)
+    const targetColumnId = overCard?.columnId
+      ?? (over.data.current?.type === "column" ? String(over.id) : null)
+    if (!activeCard || !targetColumnId || activeCard.columnId === targetColumnId) return
+
+    const activeRect = active.rect.current.translated
+    const insertAfter = Boolean(
+      overCard && activeRect
+      && activeRect.top + activeRect.height / 2 > over.rect.top + over.rect.height / 2,
+    )
+    setLocalCards(placeCard(current.cards, activeId, targetColumnId, overCard?.id ?? null, insertAfter).cards)
+  }
+
+  const handleDragEnd = ({ active, over }: DragEndEvent) => {
+    const current = boardRef.current
+    const snapshot = dragCardsRef.current
+    dragCardsRef.current = null
+
+    if (!over || !current || active.data.current?.type !== "card") {
+      if (snapshot) setLocalCards(snapshot)
+      setActiveCard(null)
+      return
+    }
+
+    const activeId = String(active.id)
+    const overCard = current.cards.find((card) => card.id === over.id)
+    const targetColumnId = overCard?.columnId
+      ?? (over.data.current?.type === "column" ? String(over.id) : null)
+    if (!targetColumnId) {
+      if (snapshot) setLocalCards(snapshot)
+      setActiveCard(null)
+      return
+    }
+
+    const activeRect = active.rect.current.translated
+    const insertAfter = Boolean(
+      overCard && activeRect
+      && activeRect.top + activeRect.height / 2 > over.rect.top + over.rect.height / 2,
+    )
+    const placement = placeCard(
+      current.cards,
+      activeId,
+      targetColumnId,
+      overCard?.id ?? null,
+      insertAfter,
+    )
+    setLocalCards(placement.cards)
+    setActiveCard(null)
+
+    const changed = !snapshot || placement.cards.some(
+      (card, index) => card.id !== snapshot[index]?.id || card.columnId !== snapshot[index]?.columnId,
+    )
+    if (changed) {
+      void act("moveCard", { id: activeId, columnId: targetColumnId, toIndex: placement.toIndex })
+        .then((ok) => { if (!ok) refreshBoard() })
+    }
+  }
+
+  const handleDragCancel = () => {
+    if (dragCardsRef.current) setLocalCards(dragCardsRef.current)
+    dragCardsRef.current = null
+    setActiveCard(null)
+  }
+
+  const saveCard = async (values: CardFormValues): Promise<boolean | { cardId: string }> => {
+    if (!dialog) return false
+    const saved = boardRef.current?.cards.find((card) => card.id === (values.id || dialog.card?.id))
+    if ((values.id || dialog.card?.id) && !saved) throw new Error(t("cardNoLongerExists"))
+    const payload: Record<string, unknown> = saved ? { id: saved.id } : {
+      columnId: dialog.columnId, title: values.title, note: values.note,
+      label: values.label || undefined, priority: values.priority || undefined, dueDate: values.dueDate || null,
+    }
+    if (saved) {
+      if (values.title !== saved.title) payload.title = values.title
+      if (values.note !== saved.note) payload.note = values.note
+      if (values.label !== (saved.label ?? "")) payload.label = values.label
+      if (values.priority !== (saved.priority ?? "")) payload.priority = values.priority
+      if (values.dueDate !== (saved.dueDate ?? "")) payload.dueDate = values.dueDate || null
+    }
+    const requestId = ++issuedRequestRef.current
+    setError("")
+    const res = await callKanban(saved ? "updateCard" : "addCard", payload, workspaceId)
+    applyBoard(res, workspaceId, requestId)
+    if (workspaceIdRef.current !== workspaceId) return false
+    const cardId = saved?.id ?? res.cardId
+    if (!cardId) {
+      // Older hosts can save text cards but cannot continue into image uploads.
+      return true
+    }
+    if (!saved) {
+      const created = res.board?.cards.find((card) => card.id === cardId)
+      if (created) setDialog({ card: created, columnId: created.columnId })
+    }
+    return { cardId }
+  }
+
+  const addImage = async (cardId: string, file: File, signal: AbortSignal) => {
+    const requestId = ++issuedRequestRef.current
+    const res = await uploadImage(workspaceId, cardId, file, signal)
+    if (res.persisted === false) throw new Error(t("actionRetry"))
+    applyBoard(res, workspaceId, requestId)
+  }
+
+  // Fill the conversation draft without sending it.
+  const handleChatWithAgent = useCallback(
+    async (values: CardFormValues): Promise<boolean> => {
+      const current = boardRef.current
+      const card = current?.cards.find((item) => item.id === values.id)
+      const text = cardToChatText({ ...values, imageCount: card?.images?.length, completedAt: card?.completedAt,
+        completed: card && current?.completedColumnId ? card.columnId === current.completedColumnId : undefined,
+      })
+      if (!text) return false
+      setError("")
+      try {
+        chatAbort.current?.abort()
+        const controller = new AbortController()
+        chatAbort.current = controller
+        const files = await readChatImages(workspaceId, card?.id ?? "", card?.images ?? [], AbortSignal.any([controller.signal, AbortSignal.timeout(30_000)]))
+        if (controller.signal.aborted) return false
+        return await onCreateConversation(workspaceId, { text, files }, controller.signal)
+      } catch (e: any) {
+        setError(t("actionFailed") + String((e && e.message) || e))
+        return false
+      }
+    },
+    [onCreateConversation, workspaceId, t],
+  )
+
+  if (!board) {
+    return (
+      <div className="kanban-root kanban-loading">
+        {error ? (
+          <div role="alert"><p className="kanban-error">{error}</p><Button variant="outline" onClick={() => refreshBoard()} disabled={refreshing}>{t("retry")}</Button></div>
+        ) : (
+          <p className="kanban-muted-text">{t("loading")}</p>
+        )}
+      </div>
+    )
+  }
+
+  const dialogCard = board.cards.find((card) => card.id === dialog?.card?.id)
+
+  return (
+    <div
+      className="kanban-root kanban-view"
+    >
+      {error && !dialog && !columnDialogOpen && !labelDialogOpen && <p className="kanban-error" role="alert">{error}</p>}
+
+      <SearchToolbar query={query} onQueryChange={setQuery} label={t("searchCards")} placeholder={t("searchPlaceholder")} actions={
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="kanban-toolbar-button kanban-toolbar-settings"
+              title={t("settings")}
+              aria-label={t("settings")}
+            >
+              <Settings2 className="kanban-icon" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem disabled={refreshing} onSelect={() => refreshBoard()}>
+              <RefreshCw className={refreshing ? "kanban-animate-spin" : undefined} />
+              {t("refresh")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => { setError(""); setColumnDialogOpen(true) }}>
+              <List className="kanban-icon" />
+              {t("columnEdit")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => { setError(""); setLabelDialogOpen(true) }}>
+              <Tag className="kanban-icon" />
+              {t("labelEdit")}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem asChild>
+              <a href="https://github.com/alpacachen/dsh-kanban/issues/new/choose" target="_blank" rel="noopener noreferrer">
+                <MessageSquare className="kanban-icon" />
+                {t("feedback")}
+              </a>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      }>
+        <FilterMenu label={t("priorityFilter")} value={priorityFilter} onValueChange={setPriorityFilter} options={[
+          { value: "", label: t("all") },
+          ...PRIORITY_OPTIONS.map(p => ({ value: p, label: PRIORITY_META[p].label, leading: <span className="kanban-priority-dot" style={{ background: PRIORITY_META[p].color }} /> })),
+        ]} />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={`kanban-toolbar-button${labelFilter !== null ? " is-active" : ""}`}
+                title={labelFilter === null ? t("labelFilter") : `${t("labelFilter")}: ${labelFilter || t("noLabel")}`}
+                aria-label={t("labelFilter")}
+                aria-pressed={labelFilter !== null}
+              >
+                <Tag className="kanban-icon" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem role="menuitemradio" aria-checked={labelFilter === null} onSelect={() => setLabelFilter(null)}>
+                <span className="kanban-filter-check">{labelFilter === null && <Check className="kanban-icon" />}</span>
+                {t("all")}
+              </DropdownMenuItem>
+              <DropdownMenuItem role="menuitemradio" aria-checked={labelFilter === ""} onSelect={() => setLabelFilter("")}>
+                <span className="kanban-filter-check">{labelFilter === "" && <Check className="kanban-icon" />}</span>
+                {t("noLabel")}
+              </DropdownMenuItem>
+              {board.labels.map((label) => (
+                <DropdownMenuItem key={label.name} role="menuitemradio" aria-checked={labelFilter === label.name} onSelect={() => setLabelFilter(label.name)}>
+                  <span className="kanban-filter-check">{labelFilter === label.name && <Check className="kanban-icon" />}</span>
+                  <span className="kanban-label-dot" style={{ background: label.color }} />
+                  {label.name}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className={`kanban-toolbar-button${dueDateFilter ? " is-active" : ""}`}
+                title={t("dueDateFilter")} aria-label={t("dueDateFilter")} aria-pressed={Boolean(dueDateFilter)}>
+                <CalendarDays className="kanban-icon" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              {(["", "today", "overdue"] as const).map((value) => (
+                <DropdownMenuItem key={value} role="menuitemradio" aria-checked={dueDateFilter === value} onSelect={() => setDueDateFilter(value)}>
+                  <span className="kanban-filter-check">{dueDateFilter === value && <Check className="kanban-icon" />}</span>
+                  {t(value === "today" ? "dueToday" : value === "overdue" ? "overdue" : "all")}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+      </SearchToolbar>
+
+      {(query.trim() || priorityFilter || labelFilter !== null || dueDateFilter) && (
+        <div className="kanban-filter-summary" aria-label={t("clearFilter")}>
+          {query.trim() && <span className="kanban-muted-small" role="status">{t("searchResults").replace("{count}", String(board.cards.filter((card) => matchCardSearch(card, query)
+            && (!priorityFilter || card.priority === priorityFilter)
+            && (labelFilter === null || (card.label ?? "") === labelFilter)
+            && matchesDueDate(card, dueDateFilter, board.completedColumnId, today)).length))}</span>}
+          {dueDateFilter && (
+            <Button variant="ghost" size="sm" className="kanban-filter-chip"
+              aria-label={`${t("clearFilter")}: ${t(dueDateFilter === "today" ? "dueToday" : "overdue")}`}
+              onClick={() => setDueDateFilter("")}>
+              {t(dueDateFilter === "today" ? "dueToday" : "overdue")}<X className="kanban-tiny-icon" aria-hidden="true" />
+            </Button>
+          )}
+          {priorityFilter && (
+            <Button variant="ghost" size="sm" className="kanban-filter-chip"
+              aria-label={`${t("clearFilter")}: ${PRIORITY_META[priorityFilter].label}`}
+              onClick={() => setPriorityFilter("")}>
+              {t("fieldPriority")}: {PRIORITY_META[priorityFilter].label}<X className="kanban-tiny-icon" aria-hidden="true" />
+            </Button>
+          )}
+          {labelFilter !== null && (
+            <Button variant="ghost" size="sm" className="kanban-filter-chip"
+              aria-label={`${t("clearFilter")}: ${labelFilter || t("noLabel")}`}
+              onClick={() => setLabelFilter(null)}>
+              {t("fieldLabel")}: {labelFilter || t("noLabel")}<X className="kanban-tiny-icon" aria-hidden="true" />
+            </Button>
+          )}
+        </div>
+      )}
+
+      {warnings.length > 0 && (
+        <div className="kanban-warning">
+          <div className="kanban-warning-body">
+            <p className="kanban-warning-title">{t("warnings")}</p>
+            {warnings.map((w, i) => (
+              <p key={i} className="kanban-warning-item">
+                {w}
+              </p>
+            ))}
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="kanban-warning-dismiss"
+            onClick={() => setWarnings([])}
+          >
+            {t("dismiss")}
+          </Button>
+        </div>
+      )}
+
+      <DndContext
+        sensors={sensors}
+        collisionDetection={collisionDetection}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragEnd={handleDragEnd}
+        onDragCancel={handleDragCancel}
+      >
+        <div className="kanban-content">
+          {/* Horizontally scrollable board columns. */}
+          <div className="kanban-board-scroll">
+            {board.columns.map((col) => {
+              const cards = board.cards.filter(
+                (c) => c.columnId === col.id
+                  && matchCardSearch(c, query)
+                  && (!priorityFilter || c.priority === priorityFilter)
+                  && (labelFilter === null || (c.label ?? "") === labelFilter)
+                  // Keep the draggable mounted until drop, even when it enters the completed column.
+                  && (c.id === activeCard?.id || matchesDueDate(c, dueDateFilter, board.completedColumnId, today)),
+              )
+              return (
+                <Column
+                  key={col.id}
+                  column={col}
+                  cards={cards}
+                  totalCount={board.cards.filter((card) => card.columnId === col.id).length}
+                  filtered={Boolean(priorityFilter || dueDateFilter || query.trim()) || labelFilter !== null}
+                  completed={col.id === board.completedColumnId}
+                  today={today}
+                  labels={board.labels}
+                  query={query}
+                  onAddCard={(c) => { setError(""); setDialog({ card: null, columnId: c.id }) }}
+                  onOpenCard={(c) => { setError(""); setDialog({ card: c, columnId: c.columnId }) }}
+                />
+              )
+            })}
+          </div>
+        </div>
+
+        <DragOverlay>
+          {activeCard ? (
+            <div className="kanban-drag-preview">
+              <KanbanCard card={activeCard} labels={board.labels} completed={activeCard.columnId === board.completedColumnId} today={today} />
+            </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
+
+      <CardDialog
+        key={workspaceId}
+        workspaceId={workspaceId}
+        imageLimits={imageLimits}
+        images={dialogCard?.images ?? []}
+        onUploadImage={addImage}
+        onRemoveImage={(id, attachmentId) => act("removeImage", { id, attachmentId })}
+        error={error}
+        open={dialog !== null}
+        card={dialog?.card ?? null}
+        labels={board.labels}
+        completed={Boolean(dialogCard && dialogCard.columnId === board.completedColumnId)}
+        completedAt={dialogCard?.completedAt ?? null}
+        comments={dialogCard?.comments ?? []}
+        activities={dialog?.card ? board.activities.filter((a) => a.cardId === dialog.card!.id) : []}
+        onOpenChange={(open) => {
+          if (!open) setDialog(null)
+        }}
+        onSave={saveCard}
+        onAddComment={(id, content) => act("addComment", { id, content })}
+        onDelete={(card) => act("deleteCard", { id: card.id })}
+        onChatWithAgent={handleChatWithAgent}
+      />
+
+      <ColumnDialog
+        error={error}
+        open={columnDialogOpen}
+        columns={board.columns}
+        completedColumnId={board.completedColumnId}
+        onSetCompletedColumn={(columnId) => act("setCompletedColumn", { columnId })}
+        onOpenChange={setColumnDialogOpen}
+        onReorder={(activeId, overId) => {
+          const toIndex = board.columns.findIndex((c) => c.id === overId)
+          return toIndex >= 0 ? act("moveColumn", { id: activeId, toIndex }) : Promise.resolve(false)
+        }}
+        onRename={(id, title) => act("renameColumn", { id, title })}
+        onDelete={(id) => act("deleteColumn", { id })}
+        onAdd={(title) => act("addColumn", { title })}
+      />
+
+      <LabelDialog
+        error={error}
+        open={labelDialogOpen}
+        labels={board.labels}
+        onOpenChange={setLabelDialogOpen}
+        onAdd={(name, color) => act("addLabel", { name, color })}
+        onUpdate={(name, newName, color) => act("updateLabel", { name, newName, color })}
+        onDelete={(name) => act("deleteLabel", { name })}
+      />
+    </div>
+  )
+}

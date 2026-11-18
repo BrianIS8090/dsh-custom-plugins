@@ -2,9 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import {fileURLToPath} from 'node:url';
+import {localizedPeerRange} from './lib/semver.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const work=path.join(root,'dist','work');
 const rootRu=JSON.parse(fs.readFileSync(path.join(work,'translation/ru.json'),'utf8'));
+const upstreamVersion=JSON.parse(fs.readFileSync(path.join(work,'upstream/dsh-mnemon/package.json'),'utf8')).version;
 for(const name of ['runtime','documents','memory-spaces','skills']) {
  const id=`dsh-mnemon-source-${name}`;
  const upstream=path.join(work,'upstream',id);
@@ -48,6 +50,8 @@ for(const name of ['runtime','documents','memory-spaces','skills']) {
  fs.writeFileSync(path.join(target,'presentation/locales.json'),JSON.stringify({...locales,ru},null,2)+'\n');
  const manifest=JSON.parse(fs.readFileSync(path.join(upstream,'package.json'),'utf8'));
  manifest.description+=' Русский интерфейс (локальная сборка).';
+ // Preserve the Source identity pinned by Starter, but explicitly opt into the derivative peer.
+ manifest.peerDependencies['dsh-mnemon']=localizedPeerRange(upstreamVersion,manifest.peerDependencies['dsh-mnemon']);
  fs.writeFileSync(path.join(target,'package.json'),JSON.stringify(manifest,null,2)+'\n');
  console.log(JSON.stringify({id,version:manifest.version,keys:Object.keys(ru).length}));
 }

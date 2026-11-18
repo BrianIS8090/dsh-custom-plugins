@@ -23,14 +23,14 @@ function npmCommand() {
 const npm = npmCommand();
 const packages = [
   ['agent-team-monitor', ['test']],
-  ['agent-team-model-selection', ['test']],
+  ['agent-war-room', ['test']],
+  ['russian-kanban', ['build', 'test']],
   ['running-session-preview', ['build', 'test', 'check']],
   ['7lamp-harness', ['test', 'check']],
   ['dsh-cost-meter', ['test']],
   ['subscription-quota', ['test', 'check']],
-  ['mnemon-russian', ['test']],
-  ['mnemon-russian-guard', ['test']],
-  ['mneme-russian', ['test']],
+  ['codex-image', ['test', 'check']],
+  ['mnemon-russian', ['test']], // Also prepares and tests the Guard.
 ];
 const args = process.argv.slice(2);
 const onlyIndex = args.indexOf('--only');

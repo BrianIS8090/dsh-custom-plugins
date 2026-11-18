@@ -1,0 +1,433 @@
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react"
+import { Check, MessageSquare, Pencil, Send, Trash2 } from "lucide-react"
+import { MarkdownText } from "@deepseek-ai/dsh-client-ui-primitives"
+import { Button } from "@/components/ui/button"
+import {
+  Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog"
+import { DrawerContent } from "@/components/ui/drawer"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select"
+import { Textarea } from "@/components/ui/textarea"
+import { PRIORITY_OPTIONS, PRIORITY_META } from "@/lib/constants"
+import { localDate } from "@/lib/due-date"
+import { formatTime } from "@/lib/activity"
+import { useT } from "@/lib/i18n"
+import type { Activity, Card, Comment, ImageLimits, ImageRef, Label as LabelType, Priority } from "@/lib/types"
+import { CardImages, type CardImagesHandle } from "./CardImages"
+import { CardActivity } from "./CardActivity"
+
+export interface CardFormValues {
+  id?: string
+  title: string
+  note: string
+  label: string
+  priority: Priority | ""
+  dueDate: string
+}
+
+type SaveResult = boolean | void | { cardId: string }
+
+interface CardDialogProps {
+  workspaceId?: string
+  imageLimits?: ImageLimits | null
+  images?: ImageRef[]
+  onUploadImage?: (cardId: string, file: File, signal: AbortSignal) => Promise<void>
+  onRemoveImage?: (cardId: string, attachmentId: string) => Promise<boolean>
+  open: boolean
+  error?: string | null
+  card: Card | null
+  completed: boolean
+  completedAt: string | null
+  labels: LabelType[]
+  comments: Comment[]
+  activities: Activity[]
+  onOpenChange: (open: boolean) => void
+  onSave: (values: CardFormValues) => SaveResult | Promise<SaveResult>
+  onAddComment: (cardId: string, content: string) => boolean | void | Promise<boolean | void>
+  onDelete?: (card: Card) => boolean | void | Promise<boolean | void>
+  onChatWithAgent: (values: CardFormValues) => boolean | void | Promise<boolean | void>
+}
+
+export function CardDialog({ workspaceId = "default", imageLimits = null, images = [], onUploadImage, onRemoveImage, open, error, card, completed, completedAt, labels, comments, activities, onOpenChange, onSave, onAddComment, onDelete, onChatWithAgent }: CardDialogProps) {
+  const t = useT()
+  const formId = useId()
+  const dueDateRef = useRef<HTMLInputElement>(null)
+  const noteRef = useRef<HTMLTextAreaElement>(null)
+  const [editingNote, setEditingNote] = useState(!card)
+  const [values, setValues] = useState<CardFormValues>({
+    id: "", title: "", note: "", label: "", priority: "", dueDate: "",
+  })
+  const [comment, setComment] = useState("")
+  const [pending, setPending] = useState(false)
+  const pendingRef = useRef(false)
+  const [failure, setFailure] = useState("")
+  const [confirm, setConfirm] = useState<"discard" | "delete" | "chat" | null>(null)
+  const cancelRef = useRef<HTMLButtonElement>(null)
+  const initialValues = useRef(values)
+  const imagesRef = useRef<CardImagesHandle>(null)
+  const [imagesBusy, setImagesBusy] = useState(false)
+  const [hasPendingImages, setHasPendingImages] = useState(false)
+  const [imageDraftKey, setImageDraftKey] = useState(0)
+  const previousCardId = useRef<string | undefined>(undefined)
+  const creatingCard = useRef(false)
+  const createdCardId = useRef<string | undefined>(undefined)
+  const locked = pending || imagesBusy
+  const alive = useRef(true)
+  useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
+
+  // Reset before the newly visible form can accept files or text.
+  useLayoutEffect(() => {
+    const previousId = previousCardId.current
+    previousCardId.current = open ? card?.id ?? "" : undefined
+    // Saving a new card changes its identity while uploads still belong to this draft.
+    if (previousId === "" && card && (creatingCard.current || createdCardId.current === card.id)) return
+    if (open) {
+      const next: CardFormValues = {
+        id: card?.id ?? "",
+        title: card?.title ?? "",
+        note: card?.note ?? "",
+        label: card?.label ?? "",
+        priority: card?.priority ?? "",
+        dueDate: card?.dueDate ?? "",
+      }
+      initialValues.current = next
+      setValues(next)
+      setComment("")
+      setFailure("")
+      setConfirm(null)
+      setHasPendingImages(false)
+      setImagesBusy(false)
+      setImageDraftKey((key) => key + 1)
+      createdCardId.current = undefined
+      setEditingNote(!card)
+    }
+  }, [open, card?.id])
+
+  useEffect(() => { if (confirm) cancelRef.current?.focus() }, [confirm])
+
+  const dirty = hasPendingImages || Boolean(comment.trim()) || (Object.keys(values) as (keyof CardFormValues)[])
+    .some((key) => values[key] !== initialValues.current[key])
+  const changeOpen = (next: boolean) => {
+    if (pendingRef.current || imagesBusy) return
+    if (!next && confirm) { setConfirm(null); return }
+    if (!next && dirty) { setConfirm("discard"); return }
+    onOpenChange(next)
+  }
+  const run = async (action: () => boolean | void | Promise<boolean | void>) => {
+    if (pendingRef.current || imagesBusy) return false
+    pendingRef.current = true
+    setPending(true)
+    setFailure("")
+    try {
+      const ok = await action()
+      if (ok === false) setFailure(t("actionRetry"))
+      return ok !== false
+    } catch (cause) {
+      setFailure(t("actionFailed") + String(cause instanceof Error ? cause.message : cause))
+      return false
+    } finally {
+      pendingRef.current = false
+      setPending(false)
+    }
+  }
+  const chat = async () => {
+    if (!dueDateRef.current?.reportValidity()) return
+    if (comment.trim() || hasPendingImages) { setConfirm("chat"); return }
+    if (await run(() => onChatWithAgent(values))) onOpenChange(false)
+  }
+  const set = (patch: Partial<CardFormValues>) => setValues((v) => ({ ...v, ...patch }))
+  const submitComment = async () => {
+    const content = comment.trim()
+    if (!card || !content || content.length > 2000) return
+    if (await run(() => onAddComment(card.id, content))) setComment("")
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={changeOpen}>
+      <DrawerContent open={open} onClose={() => changeOpen(false)} title={t(card ? "taskDetails" : "addCard")}
+        aria-describedby={undefined}
+        onPaste={(event) => {
+          const files = Array.from(event.clipboardData.files)
+          if (files.length && imageLimits && !locked && !confirm) {
+            event.preventDefault()
+            imagesRef.current?.addFiles(files)
+          }
+        }}
+      >
+        <DialogHeader>
+          <DialogTitle>{card ? t("taskDetails") : t("addCard")}</DialogTitle>
+          {card && <span className="kanban-field-id">{t("fieldId")}: {card.id}</span>}
+        </DialogHeader>
+        <DialogBody className="kanban-form-stack">
+          {(error || failure) && <p className="kanban-dialog-error" role="alert">{error || failure}</p>}
+          <div className="kanban-form-field">
+            <Label htmlFor={`${formId}-title`} className="kanban-field-label">
+              {t("fieldTitle")}
+            </Label>
+            <Input
+              data-modal-autofocus
+              id={`${formId}-title`}
+              value={values.title}
+              placeholder={t("titlePlaceholder")}
+              maxLength={120}
+              disabled={locked || Boolean(confirm)}
+              onChange={(e) => set({ title: e.target.value })}
+            />
+          </div>
+          <div className="kanban-form-row">
+            <div className="kanban-form-field">
+              <Label htmlFor={`${formId}-label`}>{t("fieldLabel")}</Label>
+              <Select disabled={locked || Boolean(confirm)} value={values.label || "__none__"} onValueChange={(v) => set({ label: v === "__none__" ? "" : v })}>
+                <SelectTrigger id={`${formId}-label`}>
+                  <SelectValue placeholder={t("noLabel")} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">{t("noLabel")}</SelectItem>
+                  {labels.map((l) => (
+                    <SelectItem key={l.name} value={l.name}>{l.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="kanban-form-field">
+              <Label htmlFor={`${formId}-priority`}>{t("fieldPriority")}</Label>
+              <Select disabled={locked || Boolean(confirm)} value={values.priority || "__none__"} onValueChange={(v) => set({ priority: v === "__none__" ? "" : (v as Priority) })}>
+                <SelectTrigger id={`${formId}-priority`}>
+                  <SelectValue placeholder={t("noPriority")} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">{t("noPriority")}</SelectItem>
+                  {PRIORITY_OPTIONS.map((p) => {
+                    const meta = PRIORITY_META[p]
+                    return (
+                      <SelectItem key={p} value={p}>
+                        <span className="kanban-inline-priority">
+                          <span className="kanban-priority-dot" style={{ background: meta.color }} />
+                          {meta.label}
+                        </span>
+                      </SelectItem>
+                    )
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className={card ? "kanban-form-row kanban-date-fields" : undefined}>
+            <div className="kanban-form-field">
+              <Label htmlFor={`${formId}-due-date`}>{t("fieldDueDate")}</Label>
+              <div className="kanban-due-date-controls">
+                <Input ref={dueDateRef} id={`${formId}-due-date`} type="date" min="0001-01-01" max="9999-12-31"
+                  value={values.dueDate} disabled={locked || Boolean(confirm)}
+                  onChange={(e) => set({ dueDate: e.target.value })} />
+                <div className="kanban-date-shortcuts">
+                  {([["today", 0], ["tomorrow", 1], ["nextWeek", 7]] as const).map(([key, offset]) => (
+                    <Button key={key} type="button" variant="ghost" size="sm" disabled={locked || Boolean(confirm)}
+                      onClick={() => set({ dueDate: localDate(new Date(), offset) })}>{t(key)}</Button>
+                  ))}
+                  <Button type="button" variant="ghost" size="sm" disabled={locked || Boolean(confirm) || !values.dueDate}
+                    onClick={() => set({ dueDate: "" })}>{t("clearDate")}</Button>
+                </div>
+              </div>
+            </div>
+            {card && <div className="kanban-form-field">
+              <Label htmlFor={`${formId}-completed-date`}>{t("fieldCompletedDate")}</Label>
+              <output id={`${formId}-completed-date`} className="kanban-completed-date"
+                aria-describedby={completed && !completedAt ? `${formId}-completed-date-hint` : undefined}>
+                {!completed ? "—" : completedAt
+                  ? <time dateTime={completedAt}>{formatTime(completedAt)}</time>
+                  : t("completedDateUnknown")}
+              </output>
+              {completed && !completedAt &&
+                <p id={`${formId}-completed-date-hint`} className="kanban-muted-small">{t("completedDateUnknownHint")}</p>}
+            </div>}
+          </div>
+          <div className="kanban-form-field">
+            <div className="kanban-field-label">
+              <Label id={`${formId}-note-label`} htmlFor={editingNote ? `${formId}-note` : undefined}>{t("fieldNote")}</Label>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={locked || Boolean(confirm)}
+                aria-controls={`${formId}-description`}
+                onClick={() => {
+                  setEditingNote(!editingNote)
+                  if (!editingNote) requestAnimationFrame(() => noteRef.current?.focus())
+                }}
+              >
+                {editingNote ? <Check /> : <Pencil />}
+                {t(editingNote ? "finishEditingNote" : "editNote")}
+              </Button>
+            </div>
+            <div id={`${formId}-description`}>
+              {editingNote ? <>
+                <Textarea
+                  ref={noteRef}
+                  id={`${formId}-note`}
+                  className="kanban-markdown-source"
+                  value={values.note}
+                  placeholder={t("notePlaceholder")}
+                  rows={12}
+                  maxLength={2000}
+                  disabled={locked || Boolean(confirm)}
+                  onChange={(e) => set({ note: e.target.value })}
+                />
+                <p className="kanban-note-hint">{t("markdownEditHint")} <span className="kanban-tabular">{values.note.length}/2000</span></p>
+              </> : (
+                <div className="kanban-markdown-preview" role="region" aria-labelledby={`${formId}-note-label`}>
+                  {values.note.trim() ? <MarkdownText
+                    text={values.note}
+                    labels={{ code: { copyLabel: t("copyCode"), copiedLabel: t("copiedCode") }, footnotes: t("footnotes") }}
+                  /> : <p className="kanban-muted-small">{t("emptyNote")}</p>}
+                </div>
+              )}
+            </div>
+          </div>
+          <CardImages key={imageDraftKey} ref={imagesRef} workspaceId={workspaceId} cardId={values.id || card?.id} images={images} limits={imageLimits}
+            disabled={locked || Boolean(confirm)}
+            onUpload={onUploadImage ?? (async () => { throw new Error(t("imagesUnavailable")) })}
+            onRemove={onRemoveImage ?? (async () => false)}
+            onBusyChange={setImagesBusy} onPendingChange={(hasPending) => {
+              setHasPendingImages(hasPending)
+              if (!hasPending) setFailure((current) => current === t("imageUploadPartial") ? "" : current)
+            }} />
+          {card && (
+            <div className="kanban-comments-box">
+              <Label htmlFor={`${formId}-comment`}>
+                {t("commentsTitle")} <span className="kanban-tabular">({comments.length})</span>
+              </Label>
+              <div className="kanban-comments-scroll" aria-live="polite">
+                {comments.length === 0 ? (
+                  <p className="kanban-muted-small">{t("commentEmpty")}</p>
+                ) : (
+                  <ol className="kanban-comment-list">
+                    {comments.map((item) => {
+                      const isAgent = item.source === "agent"
+                      return (
+                        <li key={item.id} className="kanban-comment-item">
+                          <div className="kanban-comment-meta">
+                            <span className={`kanban-activity-actor ${isAgent ? "is-agent" : "is-human"}`}>
+                              {isAgent ? t("actorAgent") : t("actorHuman")}
+                            </span>
+                            <time className="kanban-activity-time kanban-tabular" dateTime={item.createdAt}>
+                              {formatTime(item.createdAt)}
+                            </time>
+                          </div>
+                          <p className="kanban-comment-content">{item.content}</p>
+                        </li>
+                      )
+                    })}
+                  </ol>
+                )}
+              </div>
+              <div className="kanban-comment-composer">
+                <Textarea
+                  id={`${formId}-comment`}
+                  value={comment}
+                  placeholder={t("commentPlaceholder")}
+                  rows={3}
+                  maxLength={2000}
+                  disabled={locked || Boolean(confirm)}
+                  onChange={(e) => setComment(e.target.value)}
+                  onKeyDown={(e) => {
+                    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                      e.preventDefault()
+                      void submitComment()
+                    }
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={locked || Boolean(confirm) || !comment.trim()}
+                  onClick={() => void submitComment()}
+                >
+                  <Send className="kanban-icon" />
+                  {t("sendComment")}
+                </Button>
+              </div>
+            </div>
+          )}
+          {card && (
+            <div className="kanban-activity-box">
+              <Label className="kanban-muted-small">{t("activityTitle")}</Label>
+              <div className="kanban-activity-scroll">
+                <CardActivity activities={activities} />
+              </div>
+            </div>
+          )}
+        </DialogBody>
+        <DialogFooter>
+          {confirm ? (
+            <div className="kanban-dialog-confirm">
+              <p role="alert">{t(confirm === "discard" ? "discardChangesDesc" : confirm === "delete" ? "deleteCardDesc" : hasPendingImages ? "discardImagesDesc" : "discardCommentDesc")}</p>
+              <div className="kanban-confirm-actions">
+                <Button ref={cancelRef} variant="outline" disabled={locked} onClick={() => setConfirm(null)}>{t("cancel")}</Button>
+                <Button variant="destructive" disabled={locked} onClick={async () => {
+                  if (confirm === "discard") { onOpenChange(false); return }
+                  if (confirm === "delete") {
+                    if (card && onDelete && await run(() => onDelete(card))) onOpenChange(false)
+                    return
+                  }
+                  if (await run(() => onChatWithAgent(values))) onOpenChange(false)
+                }}>{t(confirm === "discard" ? "discardChanges" : confirm === "delete" ? "confirmDelete" : "discardAndContinue")}</Button>
+              </div>
+            </div>
+          ) : <>
+            {card && onDelete && (
+              <Button
+                variant="ghost"
+                className="kanban-dialog-delete"
+                disabled={locked}
+                onClick={() => setConfirm("delete")}
+              >
+                <Trash2 className="kanban-icon" />
+                {t("delete")}
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              disabled={locked || (!values.title.trim() && !values.note.trim())}
+              onClick={() => void chat()}
+            >
+              <MessageSquare className="kanban-icon" />
+              {t("chatWithAgent")}
+            </Button>
+            <Button
+              disabled={locked || !values.title.trim()}
+              onClick={async () => {
+                if (!dueDateRef.current?.reportValidity()) return
+                await run(async () => {
+                  creatingCard.current = !values.id
+                  let result: SaveResult
+                  try {
+                    result = await onSave(values)
+                    if (creatingCard.current && typeof result === "object") createdCardId.current = result.cardId
+                  } finally {
+                    creatingCard.current = false
+                  }
+                  if (!alive.current || result === false) return false
+                  const next = { ...values, ...(typeof result === "object" ? { id: result.cardId } : {}) }
+                  setValues(next)
+                  initialValues.current = next
+                  if (hasPendingImages) {
+                    if (!next.id || !await imagesRef.current?.uploadPending(next.id)) {
+                      if (alive.current) setFailure(t("imageUploadPartial"))
+                      return
+                    }
+                  }
+                  if (alive.current && !comment.trim()) onOpenChange(false)
+                })
+              }}
+            >
+              {t("save")}
+            </Button>
+          </>}
+        </DialogFooter>
+      </DrawerContent>
+    </Dialog>
+  )
+}
