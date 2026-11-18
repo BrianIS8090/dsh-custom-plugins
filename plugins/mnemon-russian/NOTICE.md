@@ -16,4 +16,6 @@ The build downloads these exact npm artifacts and verifies their SHA-512 `dist.i
 | `dsh-mnemon-source-memory-spaces` | `0.5.25` | `sha512-N3DFxAasXt/lICcE2QiXxmydrs8DMYyZFmZCf8HXU0AmVhGy18GNEqujZTBN1+mPdydmzoUCORRVXnq8GrWwFg==` |
 | `dsh-mnemon-source-skills` | `0.5.9` | `sha512-NmEgxWCAwRpzXO1NOLb2+u49zOQypNHSyO00eCvFwme0/HmuAwKsoZVr3HC+RDFNuQV48FmyANFRggLeVZCi6A==` |
 
-The localized Starter version is `0.5.42+ru.2`. Build metadata distinguishes the derivative while preserving compatibility with the Source packages' `dsh-mnemon` caret peer ranges. The package is private and is intended for local installation from a rebuilt tarball, not npm publication.
+The localized Starter version is `0.5.42-ru.3`. Each bundled Source retains its upstream identity and stable `dsh-mnemon` peer range, adding an exact opt-in for this derivative only. The Starter is private and is intended for local installation from a rebuilt tarball, not npm publication.
+
+The Host backport adapts the review-admission portion of [upstream commit 8447beac](https://github.com/omdsh-dev/dsh-mnemon/commit/8447beac9eac0e20b2f52ee0d6c55463276ce920) to the verified Starter, with a local background-review pause in Auto mode. It changes neither storage nor existing sessions.

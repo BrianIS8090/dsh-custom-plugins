@@ -257,18 +257,65 @@ window.__ModuleLoader__.load({
       return aliases;
     }
 
-    function mergeMembers(team, leadMonitor) {
-      const roster = team?.members ?? EMPTY_LIST;
+    function catalogRoster(leadId, projectionsBySession) {
+      const roster = [{ id: leadId, name: 'lead', role: 'lead', phase: 'active', parentId: null, catalogPath: '' }];
+      const missing = [];
+      const visited = new Set([leadId]);
+      const catalogOf = id => projectionsBySession[id]?.values?.subagentCatalog;
+      if (!Array.isArray(catalogOf(leadId))) missing.push(leadId);
+      for (let index = 0; index < roster.length; index++) {
+        const parent = roster[index];
+        const catalog = catalogOf(parent.id);
+        if (!Array.isArray(catalog)) continue;
+        for (const entry of catalog) {
+          if (entry === null || typeof entry !== 'object' || typeof entry.id !== 'string' || visited.has(entry.id)) continue;
+          visited.add(entry.id);
+          if (entry.mode === 'external') continue;
+          const path = typeof entry.name === 'string' && entry.name.length > 0
+            ? (parent.catalogPath ? `${parent.catalogPath}/${entry.name}` : entry.name)
+            : undefined;
+          roster.push({
+            id: entry.id,
+            name: path || entry.id,
+            role: 'teammate',
+            phase: 'active',
+            parentId: parent.id,
+            mode: entry.mode,
+            catalogPath: path,
+            catalogCreatedAt: Number.isFinite(entry.createdAt) ? entry.createdAt : undefined,
+            catalogDescription: typeof entry.label === 'string' ? entry.label : '',
+          });
+          if (!Array.isArray(catalogOf(entry.id))) missing.push(entry.id);
+        }
+      }
+      return { roster, missing };
+    }
+
+    function missingCatalogIds(leadId, projectionsBySession) {
+      return catalogRoster(leadId, projectionsBySession).missing;
+    }
+
+    function mergeMembers(team, leadMonitor, projectionsBySession = {}, leadId) {
+      const catalog = leadId ? catalogRoster(leadId, projectionsBySession).roster : EMPTY_LIST;
+      const roster = Array.isArray(team?.members) ? team.members : catalog;
       const metadata = leadMonitor?.teamMembers ?? EMPTY_LIST;
       const metadataById = new Map(metadata.map(item => [item.id, item]));
       const order = new Map(metadata.map((item, index) => [item.id, index]));
-      const members = roster.map((member, rosterIndex) => ({
-        ...member,
-        metadata: metadataById.get(member.id),
-        sortCreated: metadataById.get(member.id)?.createdAt,
-        rosterIndex,
-        metadataIndex: order.get(member.id) ?? Number.MAX_SAFE_INTEGER,
-      })).sort((a, b) => {
+      const members = roster.map((member, rosterIndex) => {
+        const saved = metadataById.get(member.id);
+        const generated = member.catalogCreatedAt === undefined && !member.catalogDescription ? undefined : {
+          description: member.catalogDescription || '',
+          createdAt: member.catalogCreatedAt ?? 0,
+        };
+        return {
+          ...member,
+          metadata: saved || generated,
+          sortCreated: saved?.createdAt ?? member.catalogCreatedAt,
+          rosterIndex,
+          metadataIndex: order.get(member.id) ?? Number.MAX_SAFE_INTEGER,
+        };
+      }).sort((a, b) => {
+        if (a.role !== b.role) return a.role === 'lead' ? -1 : 1;
         const ac = a.sortCreated, bc = b.sortCreated;
         if (ac !== undefined && bc !== undefined && ac !== bc) return ac - bc;
         if (ac !== undefined && bc === undefined) return -1;
@@ -785,8 +832,25 @@ window.__ModuleLoader__.load({
     function peerText(content) {
       return textFromContent(content).replace(/^Team message from .+?:\s*/u, '').trim();
     }
-    function parseChatEntries(entries, agentId, aliases, t) {
+    function sendMessageCalls(content) {
+      if (!Array.isArray(content)) return [];
+      const calls = [];
+      for (const block of content) {
+        if (block?.type !== 'tool-call' || block.name !== 'send_message') continue;
+        try {
+          const args = typeof block.arguments === 'string' ? JSON.parse(block.arguments) : block.arguments;
+          if (typeof args?.agent !== 'string' || typeof args.message !== 'string' || !args.message.trim()) continue;
+          calls.push({ target: args.agent, text: args.message.trim() });
+        } catch { /* malformed tool arguments stay hidden with other tool traffic */ }
+      }
+      return calls;
+    }
+    function parseChatEntries(entries, agentId, aliases, t, leadId = 'lead', runtimeNames = new Map()) {
       const result = [];
+      const idsByName = new Map([['lead', leadId]]);
+      for (const [id, name] of runtimeNames) idsByName.set(name, id);
+      for (const [id, alias] of aliases) if (!idsByName.has(alias)) idsByName.set(alias, id);
+      const recipientId = target => idsByName.get(target) || target || leadId;
       let lastPeerSender = null;
       for (const entry of entries) {
         if (entry.type !== 'event') continue;
@@ -800,6 +864,15 @@ window.__ModuleLoader__.load({
         }
         if (event.type === 'user/message') {
           const source = data.source || {};
+          if (source.kind === 'user') {
+            const text = textFromContent(data.content).trim();
+            if (text) result.push({
+              id: `event-${event.seq}`, kind: 'message', senderId: leadId, recipientId: agentId,
+              direction: 'incoming', time, text,
+            });
+            lastPeerSender = leadId;
+            continue;
+          }
           if (source.kind !== 'agent-message' || typeof source.senderSessionId !== 'string') {
             lastPeerSender = null;
             continue;
@@ -813,11 +886,17 @@ window.__ModuleLoader__.load({
           continue;
         }
         if (event.type === 'assistant/message') {
-          if (!lastPeerSender) continue;
-          const text = textFromContent(data.message?.content).trim();
+          const content = data.message?.content;
+          for (const [index, call] of sendMessageCalls(content).entries()) {
+            result.push({
+              id: `event-${event.seq}-send-${index}`, kind: 'message', senderId: agentId, recipientId: recipientId(call.target),
+              direction: 'outgoing', time, text: call.text,
+            });
+          }
+          const text = textFromContent(content).trim();
           if (!text) continue;
           result.push({
-            id: `event-${event.seq}`, kind: 'message', senderId: agentId, recipientId: lastPeerSender,
+            id: `event-${event.seq}`, kind: 'message', senderId: agentId, recipientId: lastPeerSender || leadId,
             direction: 'outgoing', time, text,
           });
         }
@@ -1050,7 +1129,7 @@ window.__ModuleLoader__.load({
         h('div', { className: 'atm-main-chat-body' }, body));
     }
 
-    const AgentChat = React.forwardRef(function AgentChat({ agentId, leadId, aliases, sessions, nameColors, t, locale, onHasMoreChange }, ref) {
+    const AgentChat = React.forwardRef(function AgentChat({ agentId, leadId, parentId, mode, aliases, runtimeNames, sessions, nameColors, t, locale, onHasMoreChange }, ref) {
       const [state, setState] = React.useState({ status: 'loading', entries: [], hasMore: false, error: null });
       const [older, setOlder] = React.useState(false);
       const [limit, setLimit] = React.useState(CHAT_ENTRY_LIMIT);
@@ -1065,7 +1144,7 @@ window.__ModuleLoader__.load({
         bindingRef.current = null;
         stickRef.current = true;
         restoreRef.current = null;
-        const target = agentId === leadId ? leadId : { parentSessionId: leadId, childSessionId: agentId, mode: 'continuable' };
+        const target = agentId === leadId ? leadId : { parentSessionId: parentId || leadId, childSessionId: agentId, mode: mode || 'continuable' };
         const open = async () => {
           try {
             ref = sessions.retain(target, { source: 'gateway' });
@@ -1094,7 +1173,7 @@ window.__ModuleLoader__.load({
           if (ref) ref.release();
           bindingRef.current = null;
         };
-      }, [agentId, leadId, sessions]);
+      }, [agentId, leadId, parentId, mode, sessions]);
 
       const loadOlder = async () => {
         const binding = bindingRef.current;
@@ -1138,7 +1217,7 @@ window.__ModuleLoader__.load({
 
       if (state.status === 'loading') return h('div', { className: 'atm-state', role: 'status' }, t('chatLoading'));
       if (state.status === 'error') return h('div', { className: 'atm-state', role: 'alert' }, h('strong', null, t('chatError')), state.error);
-      const parsed = parseChatEntries(state.entries, agentId, aliases, t).slice(-limit);
+      const parsed = parseChatEntries(state.entries, agentId, aliases, t, leadId, runtimeNames).slice(-limit);
       visibleRef.current = { count: parsed.length, firstId: parsed.length > 0 ? parsed[0].id : null };
       return h('div', { className: 'atm-chat-panel' },
         state.error ? h('div', { className: 'atm-state', role: 'alert' }, state.error) : null,
@@ -1165,7 +1244,7 @@ window.__ModuleLoader__.load({
       );
     });
 
-    function AgentDetails({ member, leadId, aliases, roles, tasks, messages, monitor, running, model, reasoning, nameColor, nameColors, now, tab, onTab, onClose, sessions, uiWorkspace, t, locale }) {
+    function AgentDetails({ member, leadId, aliases, runtimeNames, roles, tasks, messages, monitor, running, model, reasoning, nameColor, nameColors, now, tab, onTab, onClose, sessions, uiWorkspace, t, locale }) {
       const panelRef = React.useRef(null), chatRef = React.useRef(null);
       const [chatHasMore, setChatHasMore] = React.useState(false);
       React.useEffect(() => {
@@ -1189,7 +1268,7 @@ window.__ModuleLoader__.load({
       const activity = monitor?.activity || monitor?.lastAction;
       const openMain = () => {
         if (id === leadId) uiWorkspace.openSession(leadId);
-        else uiWorkspace.openSession({ parentSessionId: leadId, childSessionId: id, mode: 'continuable' });
+        else uiWorkspace.openSession({ parentSessionId: member.parentId || leadId, childSessionId: id, mode: member.mode || 'continuable' });
       };
       return h('aside', { className: `atm-details open${tab === 'chat' ? ' chat' : ''}`, ref: panelRef, 'aria-label': alias },
         h('div', { className: 'atm-detail-head' },
@@ -1210,7 +1289,7 @@ window.__ModuleLoader__.load({
           h('button', { className: `atm-detail-tab${tab === 'overview' ? ' active' : ''}`, onClick: () => onTab('overview') }, icon('activity'), t('overview')),
           h('button', { className: `atm-detail-tab${tab === 'chat' ? ' active' : ''}`, onClick: () => onTab('chat') }, icon('message'), t('chat'))),
         tab === 'chat'
-          ? h(AgentChat, { ref: chatRef, agentId: id, leadId, aliases, sessions, nameColors, t, locale, onHasMoreChange: setChatHasMore })
+          ? h(AgentChat, { ref: chatRef, agentId: id, leadId, parentId: member.parentId, mode: member.mode, aliases, runtimeNames, sessions, nameColors, t, locale, onHasMoreChange: setChatHasMore })
           : h('div', { className: 'atm-detail-body' },
               h(DetailSection, { label: t('purpose') }, h('div', { className: 'atm-detail-text' }, metadata?.description || task?.description || t('noActivity'))),
               h(DetailSection, { label: t('currentTask') }, h('div', { className: 'atm-detail-text' }, task?.subject || t('noTask'))),
@@ -1272,16 +1351,18 @@ window.__ModuleLoader__.load({
       const [now, setNow] = React.useState(() => Date.now());
       const [selectedId, setSelectedId] = React.useState(null);
       const [detailTab, setDetailTab] = React.useState('chat');
+      const catalogRequestsRef = React.useRef({ leadId: null, ids: new Set() });
       const leadId = useSession(snapshot => snapshot.subagent?.address.parentSessionId) ?? sessionId;
       const team = useSessions(state => state.projectionsBySession[leadId]?.values.agentTeam);
       const projectionsBySession = useSessions(state => state.projectionsBySession);
       const byId = useSessions(state => state.byId);
       const statuses = useSessionStatus(state => state);
       const leadMonitor = projectionsBySession[leadId]?.values.agentTeamMonitor;
-      const { members } = React.useMemo(() => mergeMembers(team, leadMonitor), [team, leadMonitor]);
+      const { members } = React.useMemo(() => mergeMembers(team, leadMonitor, projectionsBySession, leadId), [team, leadMonitor, projectionsBySession, leadId]);
       const tasks = team?.tasks ?? EMPTY_LIST;
       const metadataById = React.useMemo(() => new Map(members.map(member => [member.id, member.metadata])), [members]);
       const aliases = React.useMemo(() => displayAliases(members, metadataById), [members, metadataById]);
+      const runtimeNames = React.useMemo(() => new Map(members.map(member => [member.id, member.name])), [members]);
       const roles = React.useMemo(() => new Map(members.map(member => [member.id, member.role === 'lead' ? 'lead' : roleKeyFor(member, member.metadata?.description)])), [members]);
       const runningById = Object.fromEntries(members.map(member => [member.id, (statuses.get(member.id)?.running ?? byId[member.id]?.running) === true]));
       const messages = React.useMemo(() => collectMessages(members, projectionsBySession), [members, projectionsBySession]);
@@ -1297,6 +1378,30 @@ window.__ModuleLoader__.load({
         return () => clearInterval(timer);
       }, []);
       React.useEffect(() => { setSelectedId(null); setDetailTab('chat'); }, [leadId]);
+      React.useEffect(() => {
+        if (Array.isArray(team?.members) || typeof sessions.refreshProjections !== 'function') return;
+        let requested = catalogRequestsRef.current;
+        if (requested.leadId !== leadId) {
+          requested = { leadId, ids: new Set() };
+          catalogRequestsRef.current = requested;
+        }
+        const missing = missingCatalogIds(leadId, projectionsBySession).filter(id => !requested.ids.has(id));
+        if (missing.length === 0) return;
+        let cancelled = false;
+        const load = async () => {
+          for (const id of missing) {
+            if (cancelled) return;
+            requested.ids.add(id);
+            try {
+              await sessions.refreshProjections(id);
+            } catch (error) {
+              console.error(`[agent-team-monitor] catalog read failed for ${id}:`, error);
+            }
+          }
+        };
+        void load();
+        return () => { cancelled = true; };
+      }, [leadId, team, projectionsBySession, sessions]);
       React.useEffect(() => {
         if (selectedId && !members.some(member => member.id === selectedId)) setSelectedId(null);
       }, [selectedId, members]);
@@ -1320,7 +1425,7 @@ window.__ModuleLoader__.load({
           selectedId, onSelect: selectMember, now, sessionId, sessions, nameColors, t, locale,
         }),
         selected ? h(AgentDetails, {
-          member: selected, leadId, aliases, roles, tasks, messages,
+          member: selected, leadId, aliases, runtimeNames, roles, tasks, messages,
           monitor: projectionsBySession[selected.id]?.values.agentTeamMonitor,
           running: runningById[selected.id] === true,
           model: projectionsBySession[selected.id]?.values.agentTeamMonitor?.requestConfig?.model || projectionsBySession[selected.id]?.values.modelSelection?.next?.model,

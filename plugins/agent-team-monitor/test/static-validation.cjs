@@ -37,6 +37,11 @@ assert.match(client, /closest\('\.atm-main-chat,\.atm-details,\.atm-controls,\.a
 assert.match(client, /addEventListener\('wheel', stopWheel/, 'panels must stop wheel propagation before canvas zoom');
 assert.match(client, /className: 'atm-card-model'/, 'agent cards show the model row');
 assert.match(client, /requestConfig\?\.reasoningEffort/, 'reasoning effort is read from the request header');
+assert.match(client, /values\?\.subagentCatalog/, 'the current DSH subagentCatalog supplies the roster');
+assert.match(client, /sessions\.refreshProjections\(id\)/, 'missing recursive catalogs are loaded explicitly');
+assert.match(client, /mergeMembers\(team, leadMonitor, projectionsBySession, leadId\)/, 'roster derivation follows live projection updates');
+assert.match(client, /block\.name !== 'send_message'/, 'send_message is rendered as peer communication, not discarded as generic tool traffic');
+assert.match(client, /source\.kind === 'user'/, 'the actual initial agent task is included in its chat');
 const literalColors = [...new Set([...client.matchAll(/#[0-9a-fA-F]{3,8}\b/g)].map(match => match[0].toUpperCase()))].sort();
 assert.deepEqual(literalColors, ['#45C97A', '#4D9FFF', '#FF9F43'], 'only the three model-name colors may be literal');
 assert.doesNotMatch(client, /rgba?\(|hsla?\(/, 'client CSS uses no literal rgb/hsl colors');

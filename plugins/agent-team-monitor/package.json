@@ -1,10 +1,10 @@
 {
   "name": "@local/agent-team-monitor",
-  "version": "1.1.14",
+  "version": "1.1.16",
   "private": true,
   "description": "Live Agent Teams dashboard with member activity, peer messages, token usage, and active time.",
   "scripts": {
-    "test": "node --test --test-isolation=none test/projection.test.js test/schema.test.js && node test/static-validation.cjs && node test/canvas-validation.cjs && node test/chat-scroll.cjs"
+    "test": "node --test --test-isolation=none test/projection.test.js test/schema.test.js && node test/static-validation.cjs && node test/canvas-validation.cjs && node test/chat-scroll.cjs && node test/roster-validation.cjs && node test/chat-messages-validation.cjs"
   },
   "type": "module",
   "exports": {

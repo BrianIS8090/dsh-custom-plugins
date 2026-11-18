@@ -57,9 +57,9 @@ const entries = [
   { type: 'transient', event: { type: 'assistant/live-chunk', seq: 5, time: 500, data: {} } },
 ];
 const parsed = parseChatEntries(entries, 'agent-1', chatAliases, t);
-assert.equal(parsed.length, 2, 'only inter-agent messages are shown; tools and human messages are excluded');
-assert.deepEqual(parsed.map(item => [item.sender, item.recipient]), [['LEAD', 'Atlas'], ['Atlas', 'LEAD']]);
-assert.doesNotMatch(chatSource, /tool\/call|tool-result/, 'chat parser must not render tool calls or results');
+assert.equal(parsed.length, 3, 'peer messages, assistant text, and the actual task are shown; other tools and context are excluded');
+assert.deepEqual(parsed.map(item => [item.sender, item.recipient]), [['LEAD', 'Atlas'], ['Atlas', 'LEAD'], ['LEAD', 'Atlas']]);
+assert.doesNotMatch(chatSource, /event\.type === 'tool\/call'|event\.type === 'tool\/result'/, 'generic tool calls and results must not become chat entries');
 assert.match(script, /slice\(-limit\)(?!\.reverse\(\))/, 'chat renders newest messages last');
 assert.match(script, /className: 'atm-chat-log', ref: logRef/, 'agent chat log is mounted on the scroll container');
 assert.match(script, /if \(stickRef\.current\) log\.scrollTop = log\.scrollHeight/, 'agent chat follows new messages while the reader stays at the bottom');

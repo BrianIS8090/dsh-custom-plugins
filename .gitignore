@@ -42,4 +42,6 @@ coverage/
 Thumbs.db
 .tools/
 security-audit-local.json
-plugins/mneme-russian/pnpm-lock.yaml
+.dsh-kanban.json
+.dsh-kanban.json.*
+.agents/worktrees/

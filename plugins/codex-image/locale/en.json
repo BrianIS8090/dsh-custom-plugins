@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Codex image (GPT Image)",
+    "description": "Generate and edit images with gpt-image-2.5 through a CLIProxyAPI relay connected to Codex. Adds the gpt_image_generate and gpt_image_edit tools; URL, key, model, size, quality, background, format, variant count, style and saving are configured on the plugin page."
+  }
+}

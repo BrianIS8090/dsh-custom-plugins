@@ -1,0 +1,4 @@
+# Отдельная русскоязычная доска. Upstream @alpacachen/dsh-kanban отключается при установке.
+- insert:
+    - id: russian-kanban
+      name: "@local/russian-kanban"
