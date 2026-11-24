@@ -78,6 +78,12 @@ export const stateSchema = Object.freeze({
     validateView(value);
     time(value.firstOwnSeq, 'value.firstOwnSeq');
     object(value.pendingCalls, 'value.pendingCalls');
+    if (value.pendingDraft !== null) {
+      object(value.pendingDraft, 'value.pendingDraft');
+      string(value.pendingDraft.id, 'value.pendingDraft.id');
+      time(value.pendingDraft.time, 'value.pendingDraft.time');
+      string(value.pendingDraft.text, 'value.pendingDraft.text');
+    }
     return value;
   },
 });

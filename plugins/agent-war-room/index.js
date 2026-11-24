@@ -8,7 +8,7 @@ export const inject = ['sessionProjections', 'subagents', 'agents', 'commands', 
 export async function apply(ctx) {
   await ctx.sessionProjections.register({
     key: 'agentWarRoom',
-    stateVersion: 3,
+    stateVersion: 4,
     stateSchema,
     init: createInitialWarRoomState,
     apply: foldWarRoomEvent,

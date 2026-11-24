@@ -82,6 +82,41 @@ export function latestAssistantText(session) {
   return '';
 }
 
+const eventSeq = (event, index) => typeof event?.seq === 'number' ? event.seq : index;
+
+/** Sequence of the newest event already in the session, used as a continuation boundary. */
+export function lastEventSeq(session) {
+  const events = session.snapshotEvents();
+  return events.length === 0 ? -1 : eventSeq(events[events.length - 1], events.length - 1);
+}
+
+/**
+ * Text of the continuation turn that started after `boundary`. The turn must have
+ * ended successfully and committed a new assistant message; an earlier turn's
+ * response is never reused.
+ */
+export function continuationText(session, boundary, role = 'agent') {
+  const events = session.snapshotEvents();
+  let text = '';
+  let outcome = null;
+  for (let index = 0; index < events.length; index++) {
+    const event = events[index];
+    if (eventSeq(event, index) <= boundary) continue;
+    if (event.type === 'turn/start') { text = ''; outcome = null; continue; }
+    if (event.type === 'assistant/message') {
+      const next = outputText(event.data?.message?.content);
+      if (next) text = next;
+      continue;
+    }
+    if (event.type === 'turn/end') outcome = event.data?.reason?.kind || 'completed';
+  }
+  const label = ROLE_LABELS[role] || role;
+  if (outcome === null) throw new Error(`${label} did not finish the continuation turn`);
+  if (outcome === 'error' || outcome === 'aborted') throw new Error(`${label} continuation failed: ${outcome}`);
+  if (!text) throw new Error(`${label} returned no new response`);
+  return text;
+}
+
 function assertResult(result, role) {
   const text = outputText(result?.output);
   if (!text) throw new Error(`${ROLE_LABELS[role]} returned no artifact (${result?.stopReason || 'unknown outcome'})`);
@@ -139,11 +174,15 @@ export class WarRoomRunner {
       return activation;
     };
     const continueAgent = async (childId, prompt, role) => {
+      const before = this.ctx.agents.get(childId);
+      if (!before) throw new Error(`${ROLE_LABELS[role]} is no longer live`);
+      await before.whenIdle();
+      const boundary = lastEventSeq(before.session);
       await this.ctx.subagents.sendMessage(agent, childId, [{ type: 'text', text: prompt }], { signal });
       const child = this.ctx.agents.get(childId);
       if (!child) throw new Error(`${ROLE_LABELS[role]} is no longer live`);
       await child.whenIdle();
-      return latestAssistantText(child.session);
+      return continuationText(child.session, boundary, role);
     };
 
     try {

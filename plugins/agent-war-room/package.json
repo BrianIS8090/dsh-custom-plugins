@@ -1,6 +1,6 @@
 {
   "name": "@local/agent-war-room",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "description": "Four-role Agent War Room with one live Markdown artifact, a unified decision feed, and source tracking.",
   "type": "module",

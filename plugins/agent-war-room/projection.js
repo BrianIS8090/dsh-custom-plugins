@@ -115,6 +115,7 @@ export function createInitialWarRoomState(header, inheritedEventCount = 0) {
     versions: [],
     sources: [],
     pendingCalls: {},
+    pendingDraft: null,
   };
 }
 
@@ -151,15 +152,21 @@ export function foldWarRoomEvent(state, event) {
 
   switch (event.type) {
     case 'turn/start':
-      return { ...state, status: 'running', endedAt: null };
+      return { ...state, status: 'running', endedAt: null, pendingDraft: null };
     case 'turn/end': {
       const failed = event.data.reason?.kind === 'error' || event.data.reason?.kind === 'aborted';
+      const draft = state.pendingDraft;
+      const versions = !failed && state.role === 'architect' && draft
+        ? appendBounded(state.versions, { ...draft, number: state.versions.length + 1 }, MAX_VERSIONS)
+        : state.versions;
       return {
         ...state,
         status: failed ? 'error' : 'done',
         endedAt: at,
         activeTool: null,
         pendingCalls: {},
+        pendingDraft: null,
+        versions,
       };
     }
     case 'assistant/message': {
@@ -177,9 +184,8 @@ export function foldWarRoomEvent(state, event) {
         }, MAX_ENTRIES),
       };
       if (state.role === 'architect') {
-        next.versions = appendBounded(state.versions, {
-          id: `version-${event.seq}`, time: at, text, number: state.versions.length + 1,
-        }, MAX_VERSIONS);
+        // Only the final message of a successfully completed pass becomes a document version.
+        next.pendingDraft = { id: `version-${event.seq}`, time: at, text };
       }
       return markSourcesReviewed(addSources(next, text, at), text, at);
     }

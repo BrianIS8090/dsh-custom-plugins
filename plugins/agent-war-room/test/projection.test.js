@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createInitialWarRoomState, foldWarRoomEvent, extractUrls, textFromContent, warRoomView } from '../projection.js';
-import { outputText, latestAssistantText } from '../orchestrator.js';
+import { outputText, latestAssistantText, lastEventSeq, continuationText } from '../orchestrator.js';
 import { stateSchema, viewSchema } from '../schema.js';
 
 function rootEvent(state, type, data, seq = state.firstOwnSeq + 1) {
@@ -54,7 +54,9 @@ test('architect versions retain history and tool traffic stays bounded', () => {
   let state = createInitialWarRoomState({ id: 'architect', createdAt: 100 });
   state = rootEvent(state, 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: '[WAR_ROOM run=r role=architect]' }] });
   for (let index = 0; index < 3; index++) {
-    state = rootEvent(state, 'assistant/message', { message: { content: [{ type: 'text', text: `# Version ${index + 1}` }] } }, index + 2);
+    state = rootEvent(state, 'turn/start', { turn: index + 1 }, index * 2 + 2);
+    state = rootEvent(state, 'assistant/message', { message: { content: [{ type: 'text', text: `# Version ${index + 1}` }] } }, index * 2 + 2.5);
+    state = rootEvent(state, 'turn/end', { turn: index + 1, reason: { kind: 'completed' } }, index * 2 + 3);
   }
   assert.equal(state.versions.length, 3);
   assert.equal(state.versions[2].number, 3);
@@ -69,6 +71,65 @@ test('architect versions retain history and tool traffic stays bounded', () => {
   assert.equal(state.entries.length, 4, 'a duplicate call id cannot create another feed move');
   assert.equal(state.activeTool, null, 'a replayed settled call does not resume activity');
   stateSchema.parse(state);
+});
+
+test('intermediate architect messages stay in the feed but only a completed pass creates a version', () => {
+  let state = createInitialWarRoomState({ id: 'architect', createdAt: 100 });
+  state = rootEvent(state, 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: '[WAR_ROOM run=r role=architect]' }] }, 1);
+  state = rootEvent(state, 'turn/start', { turn: 1 }, 2);
+  state = rootEvent(state, 'assistant/message', { message: { content: [{ type: 'text', text: 'Checking the brief' }] } }, 3);
+  state = rootEvent(state, 'tool/call', { callId: 'c1', name: 'web_fetch', arguments: '{}' }, 4);
+  state = rootEvent(state, 'tool/result', { message: { source: { callId: 'c1' } } }, 5);
+  state = rootEvent(state, 'assistant/message', { message: { content: [{ type: 'text', text: 'Reading one more source' }] } }, 6);
+  state = rootEvent(state, 'assistant/message', { message: { content: [{ type: 'text', text: '# Draft' }] } }, 7);
+  assert.equal(state.versions.length, 0, 'no version before the pass completes');
+  assert.equal(state.entries.filter(entry => entry.kind === 'draft').length, 3, 'progress text stays in the feed');
+  state = rootEvent(state, 'turn/end', { turn: 1, reason: { kind: 'completed' } }, 8);
+  assert.equal(state.versions.length, 1);
+  assert.equal(state.versions[0].text, '# Draft');
+  assert.equal(state.versions[0].id, 'version-7', 'version keeps the feed link of its message');
+  stateSchema.parse(state);
+  state = rootEvent(state, 'turn/start', { turn: 2 }, 9);
+  state = rootEvent(state, 'assistant/message', { message: { content: [{ type: 'text', text: '# Half revision' }] } }, 10);
+  state = rootEvent(state, 'turn/end', { turn: 2, reason: { kind: 'error' } }, 11);
+  assert.equal(state.versions.length, 1, 'a failed pass never becomes a version');
+  assert.equal(state.pendingDraft, null);
+  viewSchema.parse(warRoomView(state));
+});
+
+test('continuation reading requires a new successful turn after the boundary', () => {
+  const session = events => ({ snapshotEvents: () => events });
+  const old = [
+    { seq: 1, type: 'turn/start', data: {} },
+    { seq: 2, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'initial draft' }] } } },
+    { seq: 3, type: 'turn/end', data: { reason: { kind: 'completed' } } },
+  ];
+  assert.equal(lastEventSeq(session(old)), 3);
+  assert.equal(lastEventSeq(session([])), -1);
+  const ok = [...old,
+    { seq: 4, type: 'user/message', data: {} },
+    { seq: 5, type: 'turn/start', data: {} },
+    { seq: 6, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'revision' }] } } },
+    { seq: 7, type: 'turn/end', data: { reason: { kind: 'completed' } } },
+  ];
+  assert.equal(continuationText(session(ok), 3, 'architect'), 'revision');
+  const failedEarly = [...old,
+    { seq: 4, type: 'turn/start', data: {} },
+    { seq: 5, type: 'turn/end', data: { reason: { kind: 'error' } } },
+  ];
+  assert.throws(() => continuationText(session(failedEarly), 3, 'architect'), /continuation failed: error/);
+  const aborted = [...old,
+    { seq: 4, type: 'turn/start', data: {} },
+    { seq: 5, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'partial' }] } } },
+    { seq: 6, type: 'turn/end', data: { reason: { kind: 'aborted' } } },
+  ];
+  assert.throws(() => continuationText(session(aborted), 3, 'skeptic'), /continuation failed: aborted/);
+  assert.throws(() => continuationText(session(old), 3, 'architect'), /did not finish/);
+  const silent = [...old,
+    { seq: 4, type: 'turn/start', data: {} },
+    { seq: 5, type: 'turn/end', data: { reason: { kind: 'completed' } } },
+  ];
+  assert.throws(() => continuationText(session(silent), 3, 'architect'), /no new response/);
 });
 
 test('source extraction strips Markdown and sentence punctuation and deduplicates', () => {
