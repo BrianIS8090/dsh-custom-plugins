@@ -1,0 +1,8 @@
+node_modules/
+.pnpm-store/
+.npm-cache/
+dist/
+*.tgz
+.DS_Store
+.dsh-kanban.json
+.dsh-kanban.json.*

@@ -11,14 +11,14 @@ Private Harness Web UI plugin for observing an Agent Team on a live, infinite ca
 - Model-coloured agent names: DeepSeek blue, Kimi/Moonshot orange, GPT/OpenAI green.
 - Right sidebar with a live, lazy-loaded agent chat and a read-only overview.
 - Left **Main chat** panel mirroring the current conversation, with Markdown rendering.
-- Chat filter: only inter-agent communication, tool calls excluded, oldest message first with automatic follow of the newest one.
+- Agent chat shows the initial task, peer messages, assistant text, and `send_message` payloads in chronological order; runtime context and unrelated tool calls stay hidden.
 - Bottom strip with active agents, provider-reported tokens, agent time, and team messages.
 
 ## How it works
 
 The Host half registers the `agentTeamMonitor` session projection. It folds provider usage, active/model/tool time, accepted peer messages, Team member metadata, and the latest `request/header` model selection.
 
-The Client half combines that projection with the existing `agentTeam`, `modelSelection`, and session status data. Agent chats use `sessions.retain()` and the selected member's `binding.eventSource`; `loadOlder()` pages earlier history without changing the main conversation. No polling or changes to the experimental Agent Teams package are used.
+The Client half combines that projection with the current recursive `subagentCatalog` roster, `agentTeam` tasks, `modelSelection`, and session status data. Missing catalogs are loaded through `sessions.refreshProjections()` and live catalog frames extend the roster without a reload; legacy `agentTeam.members` projections remain supported during upgrades. Agent chats use `sessions.retain()` and the selected member's exact parent address and `binding.eventSource`; `loadOlder()` pages earlier history without changing the main conversation. No polling or changes to the Agent Teams package are used.
 
 Token totals use only provider-reported `totalTokens`; `unreportedTotal` counts responses without an exact total. Forked agents exclude inherited history. The projection stores the latest 80 peer messages per member while aggregate counters cover the full log.
 
@@ -39,6 +39,8 @@ node --test --test-isolation=none test/projection.test.js test/schema.test.js
 node test/static-validation.cjs
 node test/canvas-validation.cjs
 node test/chat-scroll.cjs
+node test/roster-validation.cjs
+node test/chat-messages-validation.cjs
 ```
 
 ## Structure
@@ -50,3 +52,4 @@ node test/chat-scroll.cjs
 | `schema.js` | Dependency-free persisted state and wire validation |
 | `index.js` | Cordis bundle entry |
 | `test/` | Projection, geometry, identity, chat, and static checks |
+| `prototype/` | Design prototype and geometry checks |

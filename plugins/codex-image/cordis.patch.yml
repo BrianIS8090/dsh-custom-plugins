@@ -1,0 +1,4 @@
+- insert:
+    - id: codex-image
+      name: '@local/codex-image'
+      config: {}

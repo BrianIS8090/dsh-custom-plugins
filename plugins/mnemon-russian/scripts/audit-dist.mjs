@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { readTarGz } from './lib/tar.mjs';
-import { satisfiesCaretRange } from './lib/semver.mjs';
+import { LOCAL_VERSION, localizedPeerRange } from './lib/semver.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const work = path.join(root, 'dist', 'work');
@@ -40,13 +40,18 @@ for (const [relative, data] of files) {
   const staged = path.join(work, 'package', ...relative.split('/'));
   if (!fs.existsSync(staged) || !fs.readFileSync(staged).equals(data)) findings.push(`${relative}:1: archive-staging-content-mismatch`);
 }
-assert.equal(manifest.version, '0.5.42+ru.2');
+assert.equal(manifest.version, LOCAL_VERSION);
 assert.equal(manifest.private, true);
-assert.equal(manifest.repository, undefined);
+for (const field of ['repository', 'homepage', 'bugs', 'publishConfig']) assert.equal(manifest[field], undefined, field);
+const upstreamStarter = JSON.parse(fs.readFileSync(path.join(work, 'upstream', 'dsh-mnemon', 'package.json'), 'utf8'));
+assert.deepEqual(manifest.bundledDependencies.slice().sort(), Object.keys(upstreamStarter.dependencies).filter(id => id.startsWith('dsh-mnemon-source-')).sort());
+assert.ok(!files.has('node_modules/dsh-mnemon/package.json'), 'a second Starter must not be bundled');
 for (const id of manifest.bundledDependencies) {
   const nested = JSON.parse(files.get(`node_modules/${id}/package.json`).toString('utf8'));
+  const upstreamSource = JSON.parse(fs.readFileSync(path.join(work, 'upstream', id, 'package.json'), 'utf8'));
   assert.equal(nested.name, id);
-  assert.ok(satisfiesCaretRange(manifest.version, nested.peerDependencies['dsh-mnemon']));
+  assert.equal(nested.version, upstreamSource.version);
+  assert.deepEqual(nested.peerDependencies, { ...upstreamSource.peerDependencies, 'dsh-mnemon': localizedPeerRange(upstreamStarter.version, upstreamSource.peerDependencies['dsh-mnemon']) });
 }
 const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
 const expectedSums = `${sha256}  ${filename}\n`;

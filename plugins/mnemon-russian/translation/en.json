@@ -735,6 +735,7 @@
   "status.reviewFailed": "Idle review failed",
   "status.reviewFailedDetail": "This checkpoint did not complete and will not be replayed automatically. Later reviews respect the cooldown and session limit.",
   "status.reviewPartial": "Some writes committed. Reconcile the receipts below; they were not rolled back.",
+  "status.reviewAutoPaused": "Idle review is paused in Auto mode: its safety reviewer accepts model-authored tool calls, not plugin maintenance probes. Memory, recall and ordinary writes remain available. Automatic review resumes in a compatible permission mode. No permission change is required.",
   "status.reviewTeamPaused": "Idle review is paused by the Agent Teams compatibility setting. To keep reviewing, select “Scoped task Agent review” under Idle review on the dsh-mnemon page under Plugins. Recall and writeback settings are unchanged.",
   "status.reviewToolAccessPaused": "The completion tool required by automatic review is currently unavailable. This checkpoint was skipped without consuming an attempt. Access will be checked again after a later eligible conversation turn. Check this session’s tool restrictions or approval settings.",
   "status.reviewWatermarkUsage": "Session review attempts: {attempts} / {max} ({restored} restored).",

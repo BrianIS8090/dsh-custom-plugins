@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Agent War Room",
+    "description": "Four agents research, build, attack, and verify one live Markdown artifact. Run with /war-room <question> and watch the unified decision feed instead of four separate chats."
+  }
+}
